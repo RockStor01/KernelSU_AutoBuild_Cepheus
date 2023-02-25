@@ -22,6 +22,7 @@ cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
 echo "CONFIG_KPROBES=y"
 echo "CONFIG_HAVE_KPROBES=y"
 echo "CONFIG_KPROBE_EVENTS=y"
+echo "CONFIG_OVERLAY_FS=y"
 
 curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
