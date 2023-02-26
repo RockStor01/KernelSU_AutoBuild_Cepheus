@@ -19,11 +19,10 @@ cp $GITHUB_WORKSPACE/patch/EcrosoftXiao_kernel/scripts/dtc/* $GITHUB_WORKSPACE/k
 
 echo add kernelsu
 cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-echo "CONFIG_KPROBES=y" >> arch/arm64/configs/$KERNEL_DEFCONFIG
-echo "CONFIG_HAVE_KPROBES=y" >> arch/arm64/configs/$KERNEL_DEFCONFIG
-echo "CONFIG_KPROBE_EVENTS=y" >> arch/arm64/configs/$KERNEL_DEFCONFIG
-echo "CONFIG_OVERLAY_FS=y" >>  arch/arm64/configs/$KERNEL_DEFCONFIG
-
+echo "CONFIG_KPROBES=y"
+echo "CONFIG_HAVE_KPROBES=y"
+echo "CONFIG_KPROBE_EVENTS=y"
+echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/$KERNEL_DEFCONFIG
 curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
 
