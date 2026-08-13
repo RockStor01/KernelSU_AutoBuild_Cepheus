@@ -158,31 +158,29 @@ jobs:
           p = Path('KernelSU-Next/kernel/hook/lsm_hook.c')
           s = p.read_text()
 
-          old = """#else
-    unsigned long heads_addr;
-    struct hlist_head *head;
-    struct security_hook_list *selected_entry = NULL;
-"""
-          new = """#else
-    unsigned long heads_addr;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-    struct list_head *head;
-#else
-    struct hlist_head *head;
-#endif
-    struct security_hook_list *selected_entry = NULL;
-"""
+          old = ('#else\n'
+                 '    unsigned long heads_addr;\n'
+                 '    struct hlist_head *head;\n'
+                 '    struct security_hook_list *selected_entry = NULL;\n')
+          new = ('#else\n'
+                 '    unsigned long heads_addr;\n'
+                 '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+                 '    struct list_head *head;\n'
+                 '#else\n'
+                 '    struct hlist_head *head;\n'
+                 '#endif\n'
+                 '    struct security_hook_list *selected_entry = NULL;\n')
           if old in s:
               s = s.replace(old, new, 1)
 
           marker = 'static int ksu_lsm_hook_count;\n'
-          legacy_macros = """
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-#define ksu_lsm_for_each_entry(pos, head) list_for_each_entry(pos, head, list)
-#else
-#define ksu_lsm_for_each_entry(pos, head) hlist_for_each_entry(pos, head, list)
-#endif
-"""
+          legacy_macros = (
+              '\n#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+              '#define ksu_lsm_for_each_entry(pos, head) list_for_each_entry(pos, head, list)\n'
+              '#else\n'
+              '#define ksu_lsm_for_each_entry(pos, head) hlist_for_each_entry(pos, head, list)\n'
+              '#endif\n'
+          )
           if 'ksu_lsm_for_each_entry' not in s:
               if marker not in s:
                   raise SystemExit('LSM macro insertion marker not found')
@@ -190,84 +188,72 @@ jobs:
 
           s = s.replace('hlist_for_each_entry (entry, head, list)', 'ksu_lsm_for_each_entry(entry, head)')
 
-          old = """    head = (struct hlist_head *)heads_addr;
-    struct hlist_head *head_end = (struct hlist_head *)(heads_addr + heads_size);
-"""
-          new = """#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-    head = (struct list_head *)heads_addr;
-    struct list_head *head_end = (struct list_head *)(heads_addr + heads_size);
-#else
-    head = (struct hlist_head *)heads_addr;
-    struct hlist_head *head_end = (struct hlist_head *)(heads_addr + heads_size);
-#endif
-"""
+          old = ('    head = (struct hlist_head *)heads_addr;\n'
+                 '    struct hlist_head *head_end = (struct hlist_head *)(heads_addr + heads_size);\n')
+          new = ('#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+                 '    head = (struct list_head *)heads_addr;\n'
+                 '    struct list_head *head_end = (struct list_head *)(heads_addr + heads_size);\n'
+                 '#else\n'
+                 '    head = (struct hlist_head *)heads_addr;\n'
+                 '    struct hlist_head *head_end = (struct hlist_head *)(heads_addr + heads_size);\n'
+                 '#endif\n')
           if old in s:
               s = s.replace(old, new, 1)
 
-          s = s.replace(
-              'if (head < (struct hlist_head *)heads_addr || head >= head_end) {',
-              '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
-              '                if (head < (struct list_head *)heads_addr || head >= head_end) {\n'
-              '#else\n'
-              '                if (head < (struct hlist_head *)heads_addr || head >= head_end) {\n'
-              '#endif',
-              1
-          )
+          old = 'if (head < (struct hlist_head *)heads_addr || head >= head_end) {'
+          new = ('#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+                 '                if (head < (struct list_head *)heads_addr || head >= head_end) {\n'
+                 '#else\n'
+                 '                if (head < (struct hlist_head *)heads_addr || head >= head_end) {\n'
+                 '#endif')
+          if old in s:
+              s = s.replace(old, new, 1)
 
-          offset_start = """            if (hook->offset) {
-                head += hook->offset;
-"""
+          offset_start = ('            if (hook->offset) {\n'
+                          '                head += hook->offset;\n')
           if offset_start in s and 'KSU 4.14 list_head: offset LSM hook unsupported' not in s:
-              s = s.replace(
-                  offset_start,
-                  """            if (hook->offset) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-                pr_err("KSU 4.14 list_head: offset LSM hook unsupported\\n");
-                ret = -EOPNOTSUPP;
-                goto out_unlock;
-#else
-                head += hook->offset;
-""",
-                  1
-              )
-              needle = """                    selected_origin = NULL;
-                }
-            }
-            break;
-"""
-              repl = """                    selected_origin = NULL;
-                }
-#endif
-            }
-            break;
-"""
+              offset_new = ('            if (hook->offset) {\n'
+                            '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+                            '                pr_err("KSU 4.14 list_head: offset LSM hook unsupported\\n");\n'
+                            '                ret = -EOPNOTSUPP;\n'
+                            '                goto out_unlock;\n'
+                            '#else\n'
+                            '                head += hook->offset;\n')
+              s = s.replace(offset_start, offset_new, 1)
+              needle = ('                    selected_origin = NULL;\n'
+                        '                }\n'
+                        '            }\n'
+                        '            break;\n')
+              repl = ('                    selected_origin = NULL;\n'
+                      '                }\n'
+                      '#endif\n'
+                      '            }\n'
+                      '            break;\n')
               if needle not in s:
                   raise SystemExit('Could not close legacy LSM offset guard')
               s = s.replace(needle, repl, 1)
 
-          old = """#else
-    if (hook->entry == &hook->list) {
-        slot = (void **)&hook->list.head->first;
-        pr_info("unhook patch head->first\\n");
-    } else {
-        slot = (void **)((char *)hook->entry + hook->hook_offset);
-        pr_info("unhook patch slot\\n");
-    }
-#endif
-"""
-          new = """#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-    slot = (void **)((char *)hook->entry + hook->hook_offset);
-    pr_info("unhook legacy list_head slot\\n");
-#else
-    if (hook->entry == &hook->list) {
-        slot = (void **)&hook->list.head->first;
-        pr_info("unhook patch head->first\\n");
-    } else {
-        slot = (void **)((char *)hook->entry + hook->hook_offset);
-        pr_info("unhook patch slot\\n");
-    }
-#endif
-"""
+          old = ('#else\n'
+                 '    if (hook->entry == &hook->list) {\n'
+                 '        slot = (void **)&hook->list.head->first;\n'
+                 '        pr_info("unhook patch head->first\\n");\n'
+                 '    } else {\n'
+                 '        slot = (void **)((char *)hook->entry + hook->hook_offset);\n'
+                 '        pr_info("unhook patch slot\\n");\n'
+                 '    }\n'
+                 '#endif\n')
+          new = ('#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+                 '    slot = (void **)((char *)hook->entry + hook->hook_offset);\n'
+                 '    pr_info("unhook legacy list_head slot\\n");\n'
+                 '#else\n'
+                 '    if (hook->entry == &hook->list) {\n'
+                 '        slot = (void **)&hook->list.head->first;\n'
+                 '        pr_info("unhook patch head->first\\n");\n'
+                 '    } else {\n'
+                 '        slot = (void **)((char *)hook->entry + hook->hook_offset);\n'
+                 '        pr_info("unhook patch slot\\n");\n'
+                 '    }\n'
+                 '#endif\n')
           if old in s:
               s = s.replace(old, new, 1)
 
