@@ -145,6 +145,26 @@ jobs:
               raise SystemExit('uaccess include patch failed')
           p.write_text(s)
 
+          p = Path('KernelSU-Next/kernel/hook/arm64/patch_memory.c')
+          s = p.read_text()
+          if 'KSU_LEGACY_414_PATCH_MEMORY_COMPAT' not in s:
+              marker = '#include "asm-generic/fixmap.h"\n'
+              if marker not in s:
+                  raise SystemExit('Expected fixmap include not found in patch_memory.c')
+              compat = (
+                  '#include <linux/version.h>\n'
+                  '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)\n'
+                  '#define KSU_LEGACY_414_PATCH_MEMORY_COMPAT 1\n'
+                  '#define __pte_to_phys(pte) ((phys_addr_t)pte_pfn(pte) << PAGE_SHIFT)\n'
+                  '#define copy_to_kernel_nofault(dst, src, len) probe_kernel_write((dst), (src), (len))\n'
+                  '#define __flush_icache_range(start, end) flush_icache_range((start), (end))\n'
+                  '#endif\n'
+              )
+              s = s.replace(marker, marker + compat, 1)
+          if 'KSU_LEGACY_414_PATCH_MEMORY_COMPAT' not in s:
+              raise SystemExit('patch_memory compatibility patch failed')
+          p.write_text(s)
+
           p = Path('KernelSU-Next/kernel/include/util.h')
           s = p.read_text()
           if '#define ksu_close_fd sys_close' not in s:
@@ -283,6 +303,7 @@ jobs:
           grep -n -E 'dt_entry_buf = |__metadata = ' scripts/dtc/mkdtboimg.py | head
           grep -n -E 'syscall_fn_t|ksu_close_fd' KernelSU-Next/kernel/hook/syscall_hook.h KernelSU-Next/kernel/include/util.h
           grep -n 'linux/uaccess.h' KernelSU-Next/kernel/hook/syscall_event_bridge.c
+          grep -n 'KSU_LEGACY_414_PATCH_MEMORY_COMPAT' KernelSU-Next/kernel/hook/arm64/patch_memory.c
           grep -n -E 'ksu_lsm_for_each_entry|struct list_head \*head|offset LSM hook unsupported|unhook legacy list_head' \
             KernelSU-Next/kernel/hook/lsm_hook.c
 
