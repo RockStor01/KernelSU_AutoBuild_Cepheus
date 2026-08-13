@@ -10,7 +10,7 @@ if not p.is_file():
 s = p.read_text()
 
 # KernelSU-Next v3.3.0 targets newer kernels where mount UAPI constants live
-# in <uapi/linux/mount.h>.  This crDroid Linux 4.14 tree has no such header;
+# in <uapi/linux/mount.h>. This crDroid Linux 4.14 tree has no such header;
 # the MS_* mount flags used here are provided by <linux/fs.h> / uapi fs.h.
 if "KSU_LEGACY_414_SU_MOUNT_NS_COMPAT" not in s:
     old = '#include <uapi/linux/mount.h>\n'
@@ -24,9 +24,31 @@ if "KSU_LEGACY_414_SU_MOUNT_NS_COMPAT" not in s:
     )
     s = s.replace(old, new, 1)
 
+# ksys_unshare() is not available in this Linux 4.14 tree; sys_unshare() is.
+# Keep newer kernels on ksys_unshare while using the native 4.14 syscall helper.
+if "KSU_LEGACY_UNSHARE_COMPAT" not in s:
+    marker = '#define KSU_LEGACY_414_SU_MOUNT_NS_COMPAT 1\n'
+    if marker not in s:
+        raise SystemExit("su_mount_ns compatibility marker not found")
+    compat = (
+        '#define KSU_LEGACY_UNSHARE_COMPAT 1\n'
+        '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+        '#define ksu_unshare sys_unshare\n'
+        '#else\n'
+        '#define ksu_unshare ksys_unshare\n'
+        '#endif\n'
+    )
+    s = s.replace(marker, marker + compat, 1)
+
+if 'ksys_unshare(CLONE_NEWNS)' in s:
+    s = s.replace('ksys_unshare(CLONE_NEWNS)', 'ksu_unshare(CLONE_NEWNS)', 1)
+
 checks = (
     "KSU_LEGACY_414_SU_MOUNT_NS_COMPAT",
     "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)",
+    "KSU_LEGACY_UNSHARE_COMPAT",
+    "#define ksu_unshare sys_unshare",
+    "ksu_unshare(CLONE_NEWNS)",
 )
 missing = [x for x in checks if x not in s]
 if missing:
