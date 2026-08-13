@@ -134,6 +134,17 @@ jobs:
               s = s.replace(marker, marker + compat, 1)
           p.write_text(s)
 
+          p = Path('KernelSU-Next/kernel/hook/syscall_event_bridge.c')
+          s = p.read_text()
+          if '#include <linux/uaccess.h>' not in s:
+              marker = '#include <linux/ptrace.h>\n'
+              if marker not in s:
+                  raise SystemExit('Expected ptrace include not found in syscall_event_bridge.c')
+              s = s.replace(marker, marker + '#include <linux/uaccess.h>\n', 1)
+          if '#include <linux/uaccess.h>' not in s:
+              raise SystemExit('uaccess include patch failed')
+          p.write_text(s)
+
           p = Path('KernelSU-Next/kernel/include/util.h')
           s = p.read_text()
           if '#define ksu_close_fd sys_close' not in s:
@@ -271,6 +282,7 @@ jobs:
           grep -n 'cmd_mkdtimg' scripts/Makefile.lib
           grep -n -E 'dt_entry_buf = |__metadata = ' scripts/dtc/mkdtboimg.py | head
           grep -n -E 'syscall_fn_t|ksu_close_fd' KernelSU-Next/kernel/hook/syscall_hook.h KernelSU-Next/kernel/include/util.h
+          grep -n 'linux/uaccess.h' KernelSU-Next/kernel/hook/syscall_event_bridge.c
           grep -n -E 'ksu_lsm_for_each_entry|struct list_head \*head|offset LSM hook unsupported|unhook legacy list_head' \
             KernelSU-Next/kernel/hook/lsm_hook.c
 
