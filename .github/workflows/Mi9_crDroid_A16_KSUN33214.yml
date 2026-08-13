@@ -86,6 +86,12 @@ jobs:
           s = p.read_text()
           s = s.replace('xrange(', 'range(')
           s = s.replace('if version is 0:', 'if version == 0:')
+          # DT payloads are bytes under Python 3. The original Python 2 empty
+          # string acted as a byte buffer; make that explicit for Python 3.
+          if '        dt_entry_buf = ""\n' in s:
+              s = s.replace('        dt_entry_buf = ""\n', '        dt_entry_buf = b""\n', 1)
+          elif '        dt_entry_buf = b""\n' not in s:
+              raise SystemExit('Expected dt_entry_buf initializer not found')
           p.write_text(s)
 
           # KernelSU-Next v3.3.0 arm64 uses syscall_fn_t without defining it.
@@ -105,18 +111,32 @@ jobs:
           if '#include <linux/init.h>' not in s:
               s = s.replace('#include <linux/types.h>\n', '#include <linux/types.h>\n#include <linux/init.h>\n')
           p.write_text(s)
+
+          # linux/pgtable.h is not present in this 4.14 Qualcomm tree.
+          # arm64 provides the required page-table interfaces via asm/pgtable.h.
+          p = Path('KernelSU-Next/kernel/feature/sucompat.c')
+          s = p.read_text()
+          if '#include <linux/pgtable.h>' in s:
+              s = s.replace('#include <linux/pgtable.h>', '#include <asm/pgtable.h>')
+          elif '#include <asm/pgtable.h>' not in s:
+              raise SystemExit('Expected pgtable include not found in sucompat.c')
+          p.write_text(s)
           PY
 
           echo "DTC YAML setting:"
           grep -n 'NO_YAML' scripts/dtc/Makefile
           echo "DTBO Python command:"
           grep -n 'cmd_mkdtimg' scripts/Makefile.lib
+          echo "DTBO byte buffer:"
+          grep -n 'dt_entry_buf = ' scripts/dtc/mkdtboimg.py | head
           echo "Remaining xrange calls:"
           grep -n 'xrange(' scripts/dtc/mkdtboimg.py || true
           echo "KernelSU syscall_fn_t definitions:"
           sed -n '1,18p' KernelSU-Next/kernel/hook/syscall_hook.h
           echo "KernelSU sulog includes:"
           sed -n '1,14p' KernelSU-Next/kernel/feature/sulog.h
+          echo "KernelSU sucompat pgtable include:"
+          grep -n 'pgtable.h' KernelSU-Next/kernel/feature/sucompat.c
 
       - name: Configure cepheus kernel
         working-directory: kernel
