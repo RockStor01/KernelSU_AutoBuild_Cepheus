@@ -74,15 +74,15 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
           rm -rf out
           mkdir -p out
-          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- "${DEFCONFIG}"
+          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- "${DEFCONFIG}"
           ./scripts/config --file out/.config --enable KSU
           ./scripts/config --file out/.config --enable KPROBES
           ./scripts/config --file out/.config --enable KPROBE_EVENTS
           ./scripts/config --file out/.config --enable KSU_KPROBE_HOOKS || true
-          yes "" | make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- olddefconfig
+          yes "" | make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- olddefconfig
           echo "Relevant final config:"
           grep -E 'CONFIG_(KSU|KPROBES|KPROBE_EVENTS|KSU_KPROBE_HOOKS)=' out/.config || true
 
@@ -92,7 +92,7 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
           export CC=clang
           export AR=llvm-ar
           export NM=llvm-nm
@@ -105,8 +105,6 @@ jobs:
           aarch64-linux-gnu-ld --version | head -n1
           arm-linux-gnueabi-ld --version | head -n1
 
-          # Do not export LD globally here. This old 4.14 tree builds a 32-bit
-          # compat VDSO and must be allowed to select the ARM32 linker.
           make \
             O=out ARCH=arm64 \
             CC=clang \
@@ -116,7 +114,7 @@ jobs:
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             -j"$(nproc)"
 
           test -f out/arch/arm64/boot/Image.gz-dtb
