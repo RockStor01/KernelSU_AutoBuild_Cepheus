@@ -26,8 +26,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            bc bison build-essential ccache curl flex git pkg-config \
-            libelf-dev libssl-dev libncurses-dev libyaml-dev \
+            bc bison build-essential ccache curl flex git \
+            libelf-dev libssl-dev libncurses-dev \
             python3 rsync unzip zip \
             clang lld llvm \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
@@ -52,16 +52,21 @@ jobs:
           echo "KernelSU integration paths:"
           find . -maxdepth 2 -type d \( -name 'KernelSU*' -o -name 'kernelsu*' \) -print
 
-      - name: Patch legacy DTC YAML linker
+      - name: Disable DTC YAML output for legacy Kbuild
         working-directory: kernel
         run: |
-          echo "pkg-config yaml flags:"
-          pkg-config yaml-0.1 --cflags --libs
-          echo "Original HOSTLDLIBS_dtc line:"
-          grep -n 'HOSTLDLIBS_dtc' scripts/dtc/Makefile || true
-          sed -i 's|^HOSTLDLIBS_dtc[[:space:]]*:=[[:space:]].*$|HOSTLDLIBS_dtc := -lyaml|' scripts/dtc/Makefile
-          echo "Patched HOSTLDLIBS_dtc line:"
-          grep -n 'HOSTLDLIBS_dtc' scripts/dtc/Makefile
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/dtc/Makefile')
+          s = p.read_text()
+          old = """ifeq ($(shell pkg-config --exists yaml-0.1 2>/dev/null && echo yes),)\nHOST_EXTRACFLAGS += -DNO_YAML\nelse\ndtc-objs\t+= yamltree.o\nHOSTLDLIBS_dtc\t:= $(shell pkg-config yaml-0.1 --libs)\nendif\n"""
+          new = "HOST_EXTRACFLAGS += -DNO_YAML\n"
+          if old not in s:
+              raise SystemExit('Expected YAML block not found in scripts/dtc/Makefile')
+          p.write_text(s.replace(old, new))
+          PY
+          echo "DTC Makefile after patch:"
+          sed -n '1,30p' scripts/dtc/Makefile
 
       - name: Configure cepheus kernel
         working-directory: kernel
