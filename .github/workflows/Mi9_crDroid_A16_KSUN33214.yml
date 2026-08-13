@@ -292,8 +292,9 @@ jobs:
           grep -n -E 'KSU_LEGACY_414_PATCH_MEMORY_COMPAT|__pte_to_phys|copy_to_kernel_nofault|ksu_flush_icache' \
             KernelSU-Next/kernel/hook/arm64/patch_memory.c
           grep -n -E 'ksu_lsm_for_each_entry|struct list_head \*head|offset LSM hook unsupported|unhook legacy list_head' \
-          grep -n -E 'KSU_LEGACY_414_SU_MOUNT_NS_COMPAT|uapi/linux/mount.h' \
             KernelSU-Next/kernel/hook/lsm_hook.c
+          grep -n -E 'KSU_LEGACY_414_SU_MOUNT_NS_COMPAT|uapi/linux/mount.h' \
+           KernelSU-Next/kernel/infra/su_mount_ns.c
 
       - name: Configure cepheus kernel
         working-directory: kernel
