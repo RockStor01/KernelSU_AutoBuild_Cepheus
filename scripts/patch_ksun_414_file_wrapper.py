@@ -108,11 +108,61 @@ s = s.replace(
     1
 )
 
+# Linux 4.14 keeps anon_inode_mnt private inside fs/anon_inodes.c.  Our 4.14
+# path already uses anon_inode_getfile() directly, so the KSU init routine must
+# not try to borrow or access that internal mount pointer.
+old_init = '''void __init ksu_file_wrapper_init(void)
+{
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
+    static const struct file_operations tmp = { .owner = THIS_MODULE };
+    struct file *dummy = anon_inode_getfile("dummy", &tmp, NULL, 0);
+    if (IS_ERR(dummy)) {
+        pr_err(
+            "file_wrapper: initialize anon_inode_mnt failed, can't get file: %ld\\n",
+            PTR_ERR(dummy));
+        return;
+    }
+    anon_inode_mnt = dummy->f_path.mnt;
+    if (unlikely(!anon_inode_mnt)) {
+        pr_err("file_wrapper: initialize anon_inode_mnt failed, got NULL\\n");
+    }
+    fput(dummy);
+#endif
+}
+'''
+new_init = '''void __init ksu_file_wrapper_init(void)
+{
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0)
+    /* 4.14 uses anon_inode_getfile() directly; anon_inode_mnt is private. */
+    return;
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
+    static const struct file_operations tmp = { .owner = THIS_MODULE };
+    struct file *dummy = anon_inode_getfile("dummy", &tmp, NULL, 0);
+    if (IS_ERR(dummy)) {
+        pr_err(
+            "file_wrapper: initialize anon_inode_mnt failed, can't get file: %ld\\n",
+            PTR_ERR(dummy));
+        return;
+    }
+    anon_inode_mnt = dummy->f_path.mnt;
+    if (unlikely(!anon_inode_mnt)) {
+        pr_err("file_wrapper: initialize anon_inode_mnt failed, got NULL\\n");
+    }
+    fput(dummy);
+#endif
+}
+'''
+if old_init in s:
+    s = s.replace(old_init, new_init, 1)
+elif '4.14 uses anon_inode_getfile() directly; anon_inode_mnt is private.' not in s:
+    raise SystemExit('Expected ksu_file_wrapper_init block not found')
+
 checks = (
     'KSU_LEGACY_414_FILE_WRAPPER_COMPAT',
     'static unsigned int ksu_wrapper_poll',
     'return anon_inode_getfile(name, fops, priv, flags);',
     'wrapper_inode->i_security',
+    '4.14 uses anon_inode_getfile() directly; anon_inode_mnt is private.',
 )
 missing = [x for x in checks if x not in s]
 if missing:
