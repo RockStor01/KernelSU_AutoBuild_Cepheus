@@ -53,20 +53,51 @@ jobs:
           echo "KernelSU integration paths:"
           find . -maxdepth 2 -type d \( -name 'KernelSU*' -o -name 'kernelsu*' \) -print
 
-      - name: Disable DTC YAML output for legacy Kbuild
+      - name: Patch legacy build compatibility
         working-directory: kernel
         run: |
+          # 4.14 DTC host build: YAML output is not needed for cepheus DTB/DTBO
+          # and this old Kbuild does not reliably propagate HOSTLDLIBS_dtc.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('scripts/dtc/Makefile')
           s = p.read_text()
           old = """ifeq ($(shell pkg-config --exists yaml-0.1 2>/dev/null && echo yes),)\nHOST_EXTRACFLAGS += -DNO_YAML\nelse\ndtc-objs\t+= yamltree.o\nHOSTLDLIBS_dtc\t:= $(shell pkg-config yaml-0.1 --libs)\nendif\n"""
           new = "HOST_EXTRACFLAGS += -DNO_YAML\n"
-          if old not in s:
+          if old in s:
+              s = s.replace(old, new)
+          elif '-DNO_YAML' not in s:
               raise SystemExit('Expected YAML block not found in scripts/dtc/Makefile')
+          p.write_text(s)
+
+          # The AOSP mkdtboimg.py in this tree is Python 3 compatible, while
+          # scripts/Makefile.lib hard-codes the removed `python2` executable.
+          p = Path('scripts/Makefile.lib')
+          s = p.read_text()
+          old = 'cmd_mkdtimg = python2 $(srctree)/scripts/dtc/mkdtboimg.py create $@ --page_size=4096 $(filter-out FORCE,$^)'
+          new = 'cmd_mkdtimg = python3 $(srctree)/scripts/dtc/mkdtboimg.py create $@ --page_size=4096 $(filter-out FORCE,$^)'
+          if old not in s:
+              raise SystemExit('Expected python2 mkdtimg command not found')
+          p.write_text(s.replace(old, new))
+
+          # KernelSU-Next v3.3.0 syscall_hook.h defines syscall_fn_t only for
+          # x86_64, but the arm64 implementation uses the same type. On arm64
+          # the table entries take a pt_regs pointer, matching the dispatcher.
+          p = Path('KernelSU-Next/kernel/hook/syscall_hook.h')
+          s = p.read_text()
+          old = """#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n#endif\n"""
+          new = """#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n#elif defined(__aarch64__)\ntypedef long (*syscall_fn_t)(const struct pt_regs *regs);\n#endif\n"""
+          if old not in s:
+              raise SystemExit('Expected syscall_fn_t block not found in KernelSU-Next')
           p.write_text(s.replace(old, new))
           PY
-          sed -n '1,30p' scripts/dtc/Makefile
+
+          echo "DTC YAML setting:"
+          grep -n 'NO_YAML' scripts/dtc/Makefile
+          echo "DTBO Python command:"
+          grep -n 'cmd_mkdtimg' scripts/Makefile.lib
+          echo "KernelSU syscall_fn_t definitions:"
+          sed -n '1,18p' KernelSU-Next/kernel/hook/syscall_hook.h
 
       - name: Configure cepheus kernel
         working-directory: kernel
