@@ -26,7 +26,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            bc bison build-essential ccache curl flex git \
+            bc bison build-essential ccache curl flex git pkg-config \
             libelf-dev libssl-dev libncurses-dev libyaml-dev \
             python3 rsync unzip zip \
             clang lld llvm \
@@ -51,6 +51,17 @@ jobs:
             | bash -s "${KSUN_TAG}"
           echo "KernelSU integration paths:"
           find . -maxdepth 2 -type d \( -name 'KernelSU*' -o -name 'kernelsu*' \) -print
+
+      - name: Patch legacy DTC YAML linker
+        working-directory: kernel
+        run: |
+          echo "pkg-config yaml flags:"
+          pkg-config yaml-0.1 --cflags --libs
+          echo "Original HOSTLDLIBS_dtc line:"
+          grep -n 'HOSTLDLIBS_dtc' scripts/dtc/Makefile || true
+          sed -i 's|^HOSTLDLIBS_dtc[[:space:]]*:=[[:space:]].*$|HOSTLDLIBS_dtc := -lyaml|' scripts/dtc/Makefile
+          echo "Patched HOSTLDLIBS_dtc line:"
+          grep -n 'HOSTLDLIBS_dtc' scripts/dtc/Makefile
 
       - name: Configure cepheus kernel
         working-directory: kernel
