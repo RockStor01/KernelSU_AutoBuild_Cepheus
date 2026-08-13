@@ -154,10 +154,9 @@ jobs:
               compat = (
                   '#include <linux/version.h>\n'
                   '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)\n'
-                  '#define KSU_LEGACY_414_PATCH_MEMORY_COMPAT 1\n'
-                  '#define __pte_to_phys(pte) ((phys_addr_t)pte_pfn(pte) << PAGE_SHIFT)\n'
-                  '#define copy_to_kernel_nofault(dst, src, len) probe_kernel_write((dst), (src), (len))\n'
                   '#define ksu_flush_icache(start, end) flush_icache_range((start), (end))\n'
+                  '#else\n'
+                  '#define ksu_flush_icache(start, end) __flush_icache_range\n'
                   '#endif\n'
               )
               s = s.replace(marker, marker + compat, 1)
