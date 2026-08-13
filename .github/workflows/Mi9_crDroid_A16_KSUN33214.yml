@@ -281,6 +281,7 @@ jobs:
           PY
 
           python3 ../scripts/patch_ksun_414_patch_memory.py .
+          python3 ../scripts/patch_ksun_414_su_mount_ns.py .
 
           echo "=== Compatibility patch verification ==="
           grep -n 'NO_YAML' scripts/dtc/Makefile
@@ -291,6 +292,7 @@ jobs:
           grep -n -E 'KSU_LEGACY_414_PATCH_MEMORY_COMPAT|__pte_to_phys|copy_to_kernel_nofault|ksu_flush_icache' \
             KernelSU-Next/kernel/hook/arm64/patch_memory.c
           grep -n -E 'ksu_lsm_for_each_entry|struct list_head \*head|offset LSM hook unsupported|unhook legacy list_head' \
+          grep -n -E 'KSU_LEGACY_414_SU_MOUNT_NS_COMPAT|uapi/linux/mount.h' \
             KernelSU-Next/kernel/hook/lsm_hook.c
 
       - name: Configure cepheus kernel
