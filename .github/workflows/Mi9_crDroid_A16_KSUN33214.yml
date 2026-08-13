@@ -27,7 +27,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             bc bison build-essential ccache curl flex git \
-            libelf-dev libssl-dev libncurses-dev \
+            libelf-dev libssl-dev libncurses-dev libyaml-dev \
             python3 rsync unzip zip \
             clang lld llvm \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
@@ -45,14 +45,10 @@ jobs:
       - name: Integrate KernelSU-Next v3.3.0
         working-directory: kernel
         run: |
-          # Remove old KernelSU submodule/worktree if present.
           rm -rf KernelSU KernelSU-Next
-
-          # Official KernelSU-Next setup script, pinned to v3.3.0.
           curl -LSs \
             "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
             | bash -s "${KSUN_TAG}"
-
           echo "KernelSU integration paths:"
           find . -maxdepth 2 -type d \( -name 'KernelSU*' -o -name 'kernelsu*' \) -print
 
@@ -61,23 +57,14 @@ jobs:
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
-
           rm -rf out
           mkdir -p out
-
           make O=out ARCH=arm64 "${DEFCONFIG}"
-
-          # KernelSU-Next non-GKI / legacy requirements.
           ./scripts/config --file out/.config --enable KSU
           ./scripts/config --file out/.config --enable KPROBES
           ./scripts/config --file out/.config --enable KPROBE_EVENTS
-
-          # Newer KSUN trees expose this symbol; do not fail if absent.
           ./scripts/config --file out/.config --enable KSU_KPROBE_HOOKS || true
-
-          # Keep this first build conservative: no CPU/GPU OC or voltage changes.
           yes "" | make O=out ARCH=arm64 olddefconfig
-
           echo "Relevant final config:"
           grep -E 'CONFIG_(KSU|KPROBES|KPROBE_EVENTS|KSU_KPROBE_HOOKS)=' out/.config || true
 
@@ -95,7 +82,6 @@ jobs:
           export STRIP=llvm-strip
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-
           make \
             O=out ARCH=arm64 \
             CC=clang \
@@ -108,28 +94,18 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             -j"$(nproc)"
-
           test -f out/arch/arm64/boot/Image.gz-dtb
-
           file out/arch/arm64/boot/Image.gz-dtb
-          sha256sum out/arch/arm64/boot/Image.gz-dtb \
-            | tee ../Image.gz-dtb.sha256
+          sha256sum out/arch/arm64/boot/Image.gz-dtb | tee ../Image.gz-dtb.sha256
 
       - name: Prepare AnyKernel3 flashable ZIP
         working-directory: kernel
         run: |
-          # crDroid cepheus source carries an AnyKernel3 entry in this tree.
-          # If it is a gitlink/submodule-style entry, fetch a clean generic
-          # AnyKernel3 and preserve cepheus properties where available.
           if [ ! -d AnyKernel3 ] || [ ! -f AnyKernel3/anykernel.sh ]; then
             rm -rf AnyKernel3
             git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           fi
-
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
-
-          # Ensure the package is for cepheus. Generic AK3 property lines are
-          # replaced/added without touching the kernel image itself.
           if [ -f AnyKernel3/anykernel.sh ]; then
             sed -i \
               -e 's/^device\.name1=.*/device.name1=cepheus/' \
@@ -139,12 +115,9 @@ jobs:
               -e 's/^device\.name5=.*/device.name5=/' \
               AnyKernel3/anykernel.sh || true
           fi
-
           cd AnyKernel3
-          zip -r9 "../${ZIP_NAME}" . \
-            -x '.git/*' '.github/*' 'README.md' '*.zip'
+          zip -r9 "../${ZIP_NAME}" . -x '.git/*' '.github/*' 'README.md' '*.zip'
           cd ..
-
           test -f "${ZIP_NAME}"
           sha256sum "${ZIP_NAME}" | tee "${ZIP_NAME}.sha256"
 
