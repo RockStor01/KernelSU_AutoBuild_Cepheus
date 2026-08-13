@@ -30,7 +30,8 @@ jobs:
             libelf-dev libssl-dev libncurses-dev \
             python3 rsync unzip zip \
             clang lld llvm \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
 
       - name: Clone crDroid cepheus Android 16 kernel
         run: |
@@ -65,7 +66,6 @@ jobs:
               raise SystemExit('Expected YAML block not found in scripts/dtc/Makefile')
           p.write_text(s.replace(old, new))
           PY
-          echo "DTC Makefile after patch:"
           sed -n '1,30p' scripts/dtc/Makefile
 
       - name: Configure cepheus kernel
@@ -73,14 +73,16 @@ jobs:
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           rm -rf out
           mkdir -p out
-          make O=out ARCH=arm64 "${DEFCONFIG}"
+          make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- "${DEFCONFIG}"
           ./scripts/config --file out/.config --enable KSU
           ./scripts/config --file out/.config --enable KPROBES
           ./scripts/config --file out/.config --enable KPROBE_EVENTS
           ./scripts/config --file out/.config --enable KSU_KPROBE_HOOKS || true
-          yes "" | make O=out ARCH=arm64 olddefconfig
+          yes "" | make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- olddefconfig
           echo "Relevant final config:"
           grep -E 'CONFIG_(KSU|KPROBES|KPROBE_EVENTS|KSU_KPROBE_HOOKS)=' out/.config || true
 
@@ -89,20 +91,26 @@ jobs:
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
           export AR=llvm-ar
-          export LD=ld.lld
           export NM=llvm-nm
           export OBJCOPY=llvm-objcopy
           export OBJDUMP=llvm-objdump
           export STRIP=llvm-strip
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+          echo "Toolchain versions:"
+          clang --version | head -n1
+          aarch64-linux-gnu-ld --version | head -n1
+          arm-linux-gnueabi-ld --version | head -n1
+
+          # Do not export LD globally here. This old 4.14 tree builds a 32-bit
+          # compat VDSO and must be allowed to select the ARM32 linker.
           make \
             O=out ARCH=arm64 \
             CC=clang \
             AR=llvm-ar \
-            LD=ld.lld \
             NM=llvm-nm \
             OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump \
@@ -110,6 +118,7 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             -j"$(nproc)"
+
           test -f out/arch/arm64/boot/Image.gz-dtb
           file out/arch/arm64/boot/Image.gz-dtb
           sha256sum out/arch/arm64/boot/Image.gz-dtb | tee ../Image.gz-dtb.sha256
