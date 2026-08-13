@@ -57,3 +57,9 @@ file_wrapper_helper = Path(__file__).with_name("patch_ksun_414_file_wrapper.py")
 if not file_wrapper_helper.is_file():
     raise SystemExit(f"file_wrapper helper not found: {file_wrapper_helper}")
 subprocess.run([sys.executable, str(file_wrapper_helper), str(kernel_root)], check=True)
+
+# Chain Linux 4.14 seccomp cache compatibility patch.
+seccomp_cache_helper = Path(__file__).with_name("patch_ksun_414_seccomp_cache.py")
+if not seccomp_cache_helper.is_file():
+    raise SystemExit(f"seccomp_cache helper not found: {seccomp_cache_helper}")
+subprocess.run([sys.executable, str(seccomp_cache_helper), str(kernel_root)], check=True)
