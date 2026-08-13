@@ -59,113 +59,234 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # Legacy DTC host build: avoid YAML host-link dependency.
           p = Path('scripts/dtc/Makefile')
           s = p.read_text()
-          old = """ifeq ($(shell pkg-config --exists yaml-0.1 2>/dev/null && echo yes),)\nHOST_EXTRACFLAGS += -DNO_YAML\nelse\ndtc-objs\t+= yamltree.o\nHOSTLDLIBS_dtc\t:= $(shell pkg-config yaml-0.1 --libs)\nendif\n"""
-          new = "HOST_EXTRACFLAGS += -DNO_YAML\n"
-          if old in s:
-              s = s.replace(old, new)
-          elif '-DNO_YAML' not in s:
-              raise SystemExit('Expected YAML block not found in scripts/dtc/Makefile')
+          if 'HOSTLDLIBS_dtc' in s and 'yamltree.o' in s:
+              start = s.find('ifeq ($(shell pkg-config --exists yaml-0.1')
+              if start >= 0:
+                  end = s.find('endif', start)
+                  if end >= 0:
+                      end = s.find('\n', end)
+                      if end < 0:
+                          end = len(s)
+                      s = s[:start] + 'HOST_EXTRACFLAGS += -DNO_YAML\n' + s[end+1:]
+          if '-DNO_YAML' not in s:
+              raise SystemExit('Failed to disable DTC YAML support')
           p.write_text(s)
 
-          # The tree hard-codes python2 for mkdtboimg. Run it with Python 3.
           p = Path('scripts/Makefile.lib')
           s = p.read_text()
-          old = 'cmd_mkdtimg = python2 $(srctree)/scripts/dtc/mkdtboimg.py create $@ --page_size=4096 $(filter-out FORCE,$^)'
-          new = 'cmd_mkdtimg = python3 $(srctree)/scripts/dtc/mkdtboimg.py create $@ --page_size=4096 $(filter-out FORCE,$^)'
-          if old in s:
-              s = s.replace(old, new)
-          elif 'cmd_mkdtimg = python3 ' not in s:
+          s = s.replace(
+              'cmd_mkdtimg = python2 $(srctree)/scripts/dtc/mkdtboimg.py create $@ --page_size=4096 $(filter-out FORCE,$^)',
+              'cmd_mkdtimg = python3 $(srctree)/scripts/dtc/mkdtboimg.py create $@ --page_size=4096 $(filter-out FORCE,$^)'
+          )
+          if 'cmd_mkdtimg = python3 ' not in s:
               raise SystemExit('Expected mkdtimg command not found')
           p.write_text(s)
 
-          # Complete Python 2 -> Python 3 compatibility for the bundled script.
           p = Path('scripts/dtc/mkdtboimg.py')
           s = p.read_text()
           s = s.replace('xrange(', 'range(')
           s = s.replace('if version is 0:', 'if version == 0:')
-          # DT payloads are bytes under Python 3. The original Python 2 empty
-          # string acted as a byte buffer; make that explicit for Python 3.
           if '        dt_entry_buf = ""\n' in s:
               s = s.replace('        dt_entry_buf = ""\n', '        dt_entry_buf = b""\n', 1)
-          elif '        dt_entry_buf = b""\n' not in s:
-              raise SystemExit('Expected dt_entry_buf initializer not found')
-          # array('c') was removed in Python 3. This buffer is binary metadata:
-          # struct.pack_into writes into it and commit() writes it to an rb+/wb file.
-          old = "        self.__metadata = array('c', ' ' * self.__metadata_size)\n"
-          new = "        self.__metadata = bytearray(self.__metadata_size)\n"
-          if old in s:
-              s = s.replace(old, new, 1)
-          elif '        self.__metadata = bytearray(self.__metadata_size)\n' not in s:
-              raise SystemExit('Expected DTBO metadata initializer not found')
+          if "        self.__metadata = array('c', ' ' * self.__metadata_size)\n" in s:
+              s = s.replace(
+                  "        self.__metadata = array('c', ' ' * self.__metadata_size)\n",
+                  "        self.__metadata = bytearray(self.__metadata_size)\n",
+                  1
+              )
+          if 'dt_entry_buf = b""' not in s or 'bytearray(self.__metadata_size)' not in s:
+              raise SystemExit('DTBO Python3 byte-buffer patch failed')
           p.write_text(s)
 
-          # KernelSU-Next v3.3.0 arm64 uses syscall_fn_t without defining it.
           p = Path('KernelSU-Next/kernel/hook/syscall_hook.h')
           s = p.read_text()
-          old = """#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n#endif\n"""
-          new = """#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n#elif defined(__aarch64__)\ntypedef long (*syscall_fn_t)(const struct pt_regs *regs);\n#endif\n"""
-          if old in s:
-              s = s.replace(old, new)
-          elif 'typedef long (*syscall_fn_t)(const struct pt_regs *regs);' not in s:
-              raise SystemExit('Expected syscall_fn_t block not found in KernelSU-Next')
+          if 'typedef long (*syscall_fn_t)(const struct pt_regs *regs);' not in s:
+              s = s.replace(
+                  '#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n#endif\n',
+                  '#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n'
+                  '#elif defined(__aarch64__)\ntypedef long (*syscall_fn_t)(const struct pt_regs *regs);\n#endif\n'
+              )
+          if 'typedef long (*syscall_fn_t)(const struct pt_regs *regs);' not in s:
+              raise SystemExit('syscall_fn_t patch failed')
           p.write_text(s)
 
-          # v3.3.0 sulog.h uses __init/__exit but does not include linux/init.h.
           p = Path('KernelSU-Next/kernel/feature/sulog.h')
           s = p.read_text()
           if '#include <linux/init.h>' not in s:
               s = s.replace('#include <linux/types.h>\n', '#include <linux/types.h>\n#include <linux/init.h>\n')
           p.write_text(s)
 
-          # linux/pgtable.h is not present in this 4.14 Qualcomm tree.
-          # arm64 provides the required page-table interfaces via asm/pgtable.h.
           p = Path('KernelSU-Next/kernel/feature/sucompat.c')
           s = p.read_text()
-          if '#include <linux/pgtable.h>' in s:
-              s = s.replace('#include <linux/pgtable.h>', '#include <asm/pgtable.h>')
-          elif '#include <asm/pgtable.h>' not in s:
-              raise SystemExit('Expected pgtable include not found in sucompat.c')
-          # 4.14 has strncpy_from_user(), but not the later nofault helper.
-          compat = """\n#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)\n#define strncpy_from_user_nofault(dst, src, count) \\\n    strncpy_from_user((dst), (src), (count))\n#endif\n"""
-          marker = '#include "util.h"\n'
+          s = s.replace('#include <linux/pgtable.h>', '#include <asm/pgtable.h>')
+          compat = """
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
+          #define strncpy_from_user_nofault(dst, src, count) \
+              strncpy_from_user((dst), (src), (count))
+          #endif
+          """
           if 'define strncpy_from_user_nofault' not in s:
+              marker = '#include "util.h"\n'
               if marker not in s:
                   raise SystemExit('Expected util.h include not found in sucompat.c')
               s = s.replace(marker, marker + compat, 1)
           p.write_text(s)
 
-          # ksys_close does not exist in this 4.14 tree. Keep upstream behavior
-          # for newer kernels while using the available sys_close on legacy 4.14.
           p = Path('KernelSU-Next/kernel/include/util.h')
           s = p.read_text()
-          old = """#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n#define ksu_close_fd close_fd\n#else\n#define ksu_close_fd ksys_close\n#endif\n"""
-          new = """#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n#define ksu_close_fd close_fd\n#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)\n#define ksu_close_fd ksys_close\n#else\n#define ksu_close_fd sys_close\n#endif\n"""
+          if '#define ksu_close_fd sys_close' not in s:
+              s = s.replace(
+                  '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n'
+                  '#define ksu_close_fd close_fd\n'
+                  '#else\n'
+                  '#define ksu_close_fd ksys_close\n'
+                  '#endif\n',
+                  '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n'
+                  '#define ksu_close_fd close_fd\n'
+                  '#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)\n'
+                  '#define ksu_close_fd ksys_close\n'
+                  '#else\n'
+                  '#define ksu_close_fd sys_close\n'
+                  '#endif\n'
+              )
+          if '#define ksu_close_fd sys_close' not in s:
+              raise SystemExit('ksu_close_fd patch failed')
+          p.write_text(s)
+
+          p = Path('KernelSU-Next/kernel/hook/lsm_hook.c')
+          s = p.read_text()
+
+          old = """#else
+    unsigned long heads_addr;
+    struct hlist_head *head;
+    struct security_hook_list *selected_entry = NULL;
+"""
+          new = """#else
+    unsigned long heads_addr;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+    struct list_head *head;
+#else
+    struct hlist_head *head;
+#endif
+    struct security_hook_list *selected_entry = NULL;
+"""
           if old in s:
               s = s.replace(old, new, 1)
-          elif '#define ksu_close_fd sys_close' not in s:
-              raise SystemExit('Expected ksu_close_fd block not found')
+
+          marker = 'static int ksu_lsm_hook_count;\n'
+          legacy_macros = """
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+#define ksu_lsm_for_each_entry(pos, head) list_for_each_entry(pos, head, list)
+#else
+#define ksu_lsm_for_each_entry(pos, head) hlist_for_each_entry(pos, head, list)
+#endif
+"""
+          if 'ksu_lsm_for_each_entry' not in s:
+              if marker not in s:
+                  raise SystemExit('LSM macro insertion marker not found')
+              s = s.replace(marker, marker + legacy_macros, 1)
+
+          s = s.replace('hlist_for_each_entry (entry, head, list)', 'ksu_lsm_for_each_entry(entry, head)')
+
+          old = """    head = (struct hlist_head *)heads_addr;
+    struct hlist_head *head_end = (struct hlist_head *)(heads_addr + heads_size);
+"""
+          new = """#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+    head = (struct list_head *)heads_addr;
+    struct list_head *head_end = (struct list_head *)(heads_addr + heads_size);
+#else
+    head = (struct hlist_head *)heads_addr;
+    struct hlist_head *head_end = (struct hlist_head *)(heads_addr + heads_size);
+#endif
+"""
+          if old in s:
+              s = s.replace(old, new, 1)
+
+          s = s.replace(
+              'if (head < (struct hlist_head *)heads_addr || head >= head_end) {',
+              '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+              '                if (head < (struct list_head *)heads_addr || head >= head_end) {\n'
+              '#else\n'
+              '                if (head < (struct hlist_head *)heads_addr || head >= head_end) {\n'
+              '#endif',
+              1
+          )
+
+          offset_start = """            if (hook->offset) {
+                head += hook->offset;
+"""
+          if offset_start in s and 'KSU 4.14 list_head: offset LSM hook unsupported' not in s:
+              s = s.replace(
+                  offset_start,
+                  """            if (hook->offset) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+                pr_err("KSU 4.14 list_head: offset LSM hook unsupported\\n");
+                ret = -EOPNOTSUPP;
+                goto out_unlock;
+#else
+                head += hook->offset;
+""",
+                  1
+              )
+              needle = """                    selected_origin = NULL;
+                }
+            }
+            break;
+"""
+              repl = """                    selected_origin = NULL;
+                }
+#endif
+            }
+            break;
+"""
+              if needle not in s:
+                  raise SystemExit('Could not close legacy LSM offset guard')
+              s = s.replace(needle, repl, 1)
+
+          old = """#else
+    if (hook->entry == &hook->list) {
+        slot = (void **)&hook->list.head->first;
+        pr_info("unhook patch head->first\\n");
+    } else {
+        slot = (void **)((char *)hook->entry + hook->hook_offset);
+        pr_info("unhook patch slot\\n");
+    }
+#endif
+"""
+          new = """#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+    slot = (void **)((char *)hook->entry + hook->hook_offset);
+    pr_info("unhook legacy list_head slot\\n");
+#else
+    if (hook->entry == &hook->list) {
+        slot = (void **)&hook->list.head->first;
+        pr_info("unhook patch head->first\\n");
+    } else {
+        slot = (void **)((char *)hook->entry + hook->hook_offset);
+        pr_info("unhook patch slot\\n");
+    }
+#endif
+"""
+          if old in s:
+              s = s.replace(old, new, 1)
+
+          if 'ksu_lsm_for_each_entry' not in s:
+              raise SystemExit('Legacy LSM iterator patch failed')
+          if 'struct list_head *head;' not in s:
+              raise SystemExit('Legacy LSM head type patch failed')
+          if 'unhook legacy list_head slot' not in s:
+              raise SystemExit('Legacy LSM unhook patch failed')
           p.write_text(s)
           PY
 
-          echo "DTC YAML setting:"
+          echo "=== Compatibility patch verification ==="
           grep -n 'NO_YAML' scripts/dtc/Makefile
-          echo "DTBO Python command:"
           grep -n 'cmd_mkdtimg' scripts/Makefile.lib
-          echo "DTBO byte buffers:"
           grep -n -E 'dt_entry_buf = |__metadata = ' scripts/dtc/mkdtboimg.py | head
-          echo "Remaining xrange calls:"
-          grep -n 'xrange(' scripts/dtc/mkdtboimg.py || true
-          echo "KernelSU syscall_fn_t definitions:"
-          sed -n '1,18p' KernelSU-Next/kernel/hook/syscall_hook.h
-          echo "KernelSU sulog includes:"
-          sed -n '1,14p' KernelSU-Next/kernel/feature/sulog.h
-          echo "KernelSU sucompat legacy helpers:"
-          grep -n -E 'pgtable.h|strncpy_from_user_nofault' KernelSU-Next/kernel/feature/sucompat.c
-          echo "KernelSU close-fd compatibility:"
-          sed -n '1,22p' KernelSU-Next/kernel/include/util.h
+          grep -n -E 'syscall_fn_t|ksu_close_fd' KernelSU-Next/kernel/hook/syscall_hook.h KernelSU-Next/kernel/include/util.h
+          grep -n -E 'ksu_lsm_for_each_entry|struct list_head \*head|offset LSM hook unsupported|unhook legacy list_head' \
+            KernelSU-Next/kernel/hook/lsm_hook.c
 
       - name: Configure cepheus kernel
         working-directory: kernel
