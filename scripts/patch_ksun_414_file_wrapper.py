@@ -170,3 +170,10 @@ if missing:
 
 p.write_text(s)
 print(f'Patched {p}')
+
+# Chain Linux 4.14 event_queue compatibility patch.
+import subprocess
+event_queue_helper = Path(__file__).with_name("patch_ksun_414_event_queue.py")
+if not event_queue_helper.is_file():
+    raise SystemExit(f"event_queue helper not found: {event_queue_helper}")
+subprocess.run([sys.executable, str(event_queue_helper), str(kernel_root)], check=True)
