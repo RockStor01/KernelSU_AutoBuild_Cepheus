@@ -2,6 +2,9 @@ name: Mi9 crDroid A16 - Linux 4.14.355 + KSUN 33214
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/ksun-4.14-patch-memory
 
 permissions:
   contents: read
