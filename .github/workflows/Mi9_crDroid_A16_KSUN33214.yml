@@ -56,10 +56,10 @@ jobs:
       - name: Patch legacy build compatibility
         working-directory: kernel
         run: |
-          # 4.14 DTC host build: YAML output is not needed for cepheus DTB/DTBO
-          # and this old Kbuild does not reliably propagate HOSTLDLIBS_dtc.
           python3 - <<'PY'
           from pathlib import Path
+
+          # Legacy DTC host build: avoid YAML host-link dependency.
           p = Path('scripts/dtc/Makefile')
           s = p.read_text()
           old = """ifeq ($(shell pkg-config --exists yaml-0.1 2>/dev/null && echo yes),)\nHOST_EXTRACFLAGS += -DNO_YAML\nelse\ndtc-objs\t+= yamltree.o\nHOSTLDLIBS_dtc\t:= $(shell pkg-config yaml-0.1 --libs)\nendif\n"""
@@ -70,34 +70,53 @@ jobs:
               raise SystemExit('Expected YAML block not found in scripts/dtc/Makefile')
           p.write_text(s)
 
-          # The AOSP mkdtboimg.py in this tree is Python 3 compatible, while
-          # scripts/Makefile.lib hard-codes the removed `python2` executable.
+          # The tree hard-codes python2 for mkdtboimg. Run it with Python 3.
           p = Path('scripts/Makefile.lib')
           s = p.read_text()
           old = 'cmd_mkdtimg = python2 $(srctree)/scripts/dtc/mkdtboimg.py create $@ --page_size=4096 $(filter-out FORCE,$^)'
           new = 'cmd_mkdtimg = python3 $(srctree)/scripts/dtc/mkdtboimg.py create $@ --page_size=4096 $(filter-out FORCE,$^)'
-          if old not in s:
-              raise SystemExit('Expected python2 mkdtimg command not found')
-          p.write_text(s.replace(old, new))
+          if old in s:
+              s = s.replace(old, new)
+          elif 'cmd_mkdtimg = python3 ' not in s:
+              raise SystemExit('Expected mkdtimg command not found')
+          p.write_text(s)
 
-          # KernelSU-Next v3.3.0 syscall_hook.h defines syscall_fn_t only for
-          # x86_64, but the arm64 implementation uses the same type. On arm64
-          # the table entries take a pt_regs pointer, matching the dispatcher.
+          # Complete Python 2 -> Python 3 compatibility for the bundled script.
+          p = Path('scripts/dtc/mkdtboimg.py')
+          s = p.read_text()
+          s = s.replace('xrange(', 'range(')
+          s = s.replace('if version is 0:', 'if version == 0:')
+          p.write_text(s)
+
+          # KernelSU-Next v3.3.0 arm64 uses syscall_fn_t without defining it.
           p = Path('KernelSU-Next/kernel/hook/syscall_hook.h')
           s = p.read_text()
           old = """#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n#endif\n"""
           new = """#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n#elif defined(__aarch64__)\ntypedef long (*syscall_fn_t)(const struct pt_regs *regs);\n#endif\n"""
-          if old not in s:
+          if old in s:
+              s = s.replace(old, new)
+          elif 'typedef long (*syscall_fn_t)(const struct pt_regs *regs);' not in s:
               raise SystemExit('Expected syscall_fn_t block not found in KernelSU-Next')
-          p.write_text(s.replace(old, new))
+          p.write_text(s)
+
+          # v3.3.0 sulog.h uses __init/__exit but does not include linux/init.h.
+          p = Path('KernelSU-Next/kernel/feature/sulog.h')
+          s = p.read_text()
+          if '#include <linux/init.h>' not in s:
+              s = s.replace('#include <linux/types.h>\n', '#include <linux/types.h>\n#include <linux/init.h>\n')
+          p.write_text(s)
           PY
 
           echo "DTC YAML setting:"
           grep -n 'NO_YAML' scripts/dtc/Makefile
           echo "DTBO Python command:"
           grep -n 'cmd_mkdtimg' scripts/Makefile.lib
+          echo "Remaining xrange calls:"
+          grep -n 'xrange(' scripts/dtc/mkdtboimg.py || true
           echo "KernelSU syscall_fn_t definitions:"
           sed -n '1,18p' KernelSU-Next/kernel/hook/syscall_hook.h
+          echo "KernelSU sulog includes:"
+          sed -n '1,14p' KernelSU-Next/kernel/feature/sulog.h
 
       - name: Configure cepheus kernel
         working-directory: kernel
