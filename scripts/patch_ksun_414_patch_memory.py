@@ -50,3 +50,10 @@ if missing:
 
 p.write_text(s)
 print(f"Patched {p}")
+
+# Chain Linux 4.14 file_wrapper compatibility patch
+import subprocess
+file_wrapper_helper = Path(__file__).with_name("patch_ksun_414_file_wrapper.py")
+if not file_wrapper_helper.is_file():
+    raise SystemExit(f"file_wrapper helper not found: {file_wrapper_helper}")
+subprocess.run([sys.executable, str(file_wrapper_helper), str(kernel_root)], check=True)
