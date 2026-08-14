@@ -306,6 +306,18 @@ jobs:
           grep -n -E 'ksu_lsm_for_each_entry|struct list_head \*head|offset LSM hook unsupported|unhook legacy list_head' \
             KernelSU-Next/kernel/hook/lsm_hook.c
 
+      - name: Patch 4.14 missing KSU symbols
+        working-directory: kernel
+        run: |
+          cp ../patch/ksu_compat_414.c KernelSU-Next/kernel/compat_414.c
+          if ! grep -q 'compat_414.o' KernelSU-Next/kernel/Kbuild; then
+            sed -i '/^kernelsu-objs := core\/init.o/a\kernelsu-objs += compat_414.o' KernelSU-Next/kernel/Kbuild
+          fi
+          echo "=== Kbuild compat entry ==="
+          grep compat_414 KernelSU-Next/kernel/Kbuild
+          echo "=== compat file size ==="
+          wc -l KernelSU-Next/kernel/compat_414.c
+
       - name: Configure cepheus kernel
         working-directory: kernel
         run: |
