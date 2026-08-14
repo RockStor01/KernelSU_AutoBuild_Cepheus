@@ -144,8 +144,21 @@ jobs:
         run: |
           set -u
           mkdir -p port-report/stage4
-          CEPHEUS_PATCH_URL='https://lore.kernel.org/all/20220107025910.112425-1-alexeymin@postmarketos.org/raw'
-          curl --fail --location --retry 3 "${CEPHEUS_PATCH_URL}" -o /tmp/cepheus-dts.patch
+          CEPHEUS_PATCH_URL='https://patchew.org/linux/20220107025910.112425-1-alexeymin%40postmarketos.org/mbox'
+          curl --fail --location --retry 3 "${CEPHEUS_PATCH_URL}" -o /tmp/cepheus-dts.mbox
+          python3 - <<'PY'
+          from email import policy
+          from email.parser import BytesParser
+          from pathlib import Path
+
+          message = BytesParser(policy=policy.default).parsebytes(
+              Path('/tmp/cepheus-dts.mbox').read_bytes()
+          )
+          payload = message.get_payload(decode=True)
+          if not payload or b'sm8150-xiaomi-cepheus.dts' not in payload:
+              raise SystemExit('Patchew mbox did not contain the cepheus DTS patch')
+          Path('/tmp/cepheus-dts.patch').write_bytes(payload)
+          PY
           grep -q 'sm8150-xiaomi-cepheus.dts' /tmp/cepheus-dts.patch
 
           cd kernel510
