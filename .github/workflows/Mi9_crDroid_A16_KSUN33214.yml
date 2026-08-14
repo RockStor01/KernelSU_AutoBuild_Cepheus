@@ -335,7 +335,7 @@ jobs:
           export CC=clang
           export AR=llvm-ar
           export NM=llvm-nm
-          export OBJCOPY=llvm-objcopy
+          export OBJCOPY=aarch64-linux-gnu-objcopy
           export OBJDUMP=llvm-objdump
           export STRIP=llvm-strip
 
@@ -349,7 +349,7 @@ jobs:
             CC=clang \
             AR=llvm-ar \
             NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
+            OBJCOPY=aarch64-linux-gnu-objcopy \
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
             CROSS_COMPILE=aarch64-linux-gnu- \
