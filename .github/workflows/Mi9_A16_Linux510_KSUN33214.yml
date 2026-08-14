@@ -165,6 +165,37 @@ jobs:
           git apply --include='arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts' /tmp/cepheus-dts.patch
           test -s arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts
 
+          # android13-5.10 predates the pon_pwrkey label and has no
+          # pon_resin child used by the 2022 cepheus DTS. Label the existing
+          # power-key node and defer the optional resin key until its binding
+          # and node are backported together.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          pmic = Path('arch/arm64/boot/dts/qcom/pm8150.dtsi')
+          text = pmic.read_text()
+          if 'pon_pwrkey: pwrkey {' not in text:
+              text, count = re.subn(r'(?m)^(\s*)pwrkey \{', r'\1pon_pwrkey: pwrkey {', text, count=1)
+              if count != 1:
+                  raise SystemExit('Could not label the existing PM8150 power-key node')
+          pmic.write_text(text)
+
+          board = Path('arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts')
+          text = board.read_text()
+          text, count = re.subn(
+              r'(?ms)^&pon_resin \{.*?^\};\n?',
+              '/* pon_resin deferred: absent from android13-5.10 PM8150 baseline */\n',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('Expected cepheus pon_resin override was not found')
+          board.write_text(text)
+          PY
+          grep -q 'pon_pwrkey: pwrkey' arch/arm64/boot/dts/qcom/pm8150.dtsi
+          grep -q 'pon_resin deferred' arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts
+
           if ! grep -q 'sm8150-xiaomi-cepheus.dtb' arch/arm64/boot/dts/qcom/Makefile; then
             printf '\ndtb-$(CONFIG_ARCH_QCOM) += sm8150-xiaomi-cepheus.dtb\n' >> arch/arm64/boot/dts/qcom/Makefile
           fi
