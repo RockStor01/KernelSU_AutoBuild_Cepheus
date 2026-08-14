@@ -91,6 +91,25 @@ if '#include <linux/minmax.h>' in event_src:
 sulog_event.write_text(event_src)
 print(f"Patched {sulog_event} for Linux 4.14 SULog compatibility")
 
+# Linux 4.14 file_operations::poll returns unsigned int and predates __poll_t.
+# KSUN v3.3.0 uses __poll_t in the shared event queue and SULog fd wrapper,
+# so normalize all three declarations/definitions to the 4.14 ABI type.
+for rel in (
+    "KernelSU-Next/kernel/infra/event_queue.h",
+    "KernelSU-Next/kernel/infra/event_queue.c",
+    "KernelSU-Next/kernel/sulog/fd.c",
+):
+    poll_file = kernel_root / rel
+    if not poll_file.is_file():
+        raise SystemExit(f"SULog poll compatibility file not found: {poll_file}")
+    poll_src = poll_file.read_text()
+    if '__poll_t' in poll_src:
+        poll_src = poll_src.replace('__poll_t', 'unsigned int')
+    if '__poll_t' in poll_src:
+        raise SystemExit(f"SULog __poll_t compatibility patch failed: {poll_file}")
+    poll_file.write_text(poll_src)
+    print(f"Patched {poll_file} for Linux 4.14 poll compatibility")
+
 import subprocess
 
 # Chain Linux 4.14 file_wrapper compatibility patch
