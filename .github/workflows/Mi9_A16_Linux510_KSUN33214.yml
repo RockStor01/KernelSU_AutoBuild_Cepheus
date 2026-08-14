@@ -31,7 +31,10 @@ jobs:
           sudo apt-get install -y \
             bc bison build-essential ccache curl flex git \
             libelf-dev libssl-dev libncurses-dev python3 rsync unzip zip \
-            clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+            clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            dwarves
+          command -v pahole
+          pahole --version
 
       - name: Add swap for kernel link stage
         run: |
@@ -79,7 +82,7 @@ jobs:
           ./scripts/config --file out/.config --disable LTO_CLANG || true
           ./scripts/config --file out/.config --enable LTO_NONE || true
           make O=out ARCH=arm64 LLVM=1 olddefconfig
-          grep -E 'CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_OVERLAY_FS=|CONFIG_LTO' out/.config || true
+          grep -E 'CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_OVERLAY_FS=|CONFIG_LTO|CONFIG_DEBUG_INFO_BTF' out/.config || true
 
       - name: Build Linux 5.10 baseline Image
         working-directory: kernel510
@@ -104,7 +107,7 @@ jobs:
             find donor414/arch/arm64/boot/dts -type f \( -iname '*cepheus*' -o -iname '*sm8150*' \) 2>/dev/null | sort || true
             echo
             echo "=== Cepheus defconfigs ==="
-            find donor414/arch/arm64/configs -maxdepth 1 -type f -iname '*cepheus*' -o -iname '*sm8150*' 2>/dev/null | sort || true
+            find donor414/arch/arm64/configs -maxdepth 1 -type f \( -iname '*cepheus*' -o -iname '*sm8150*' \) 2>/dev/null | sort || true
             echo
             echo "=== Xiaomi-specific driver directories ==="
             find donor414/drivers -maxdepth 4 -type d \( -iname '*xiaomi*' -o -iname '*goodix*' -o -iname '*fpc*' -o -iname '*qcom*' \) 2>/dev/null | sort | head -500 || true
