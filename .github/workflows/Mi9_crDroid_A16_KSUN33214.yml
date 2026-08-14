@@ -19,7 +19,7 @@ jobs:
       KERNEL_BRANCH: "16.0"
       DEFCONFIG: cepheus_defconfig
       KSUN_TAG: v3.3.0
-      ZIP_NAME: InfiniR-cepheus-4.14.355-A16-KSUN-v3.3.0-33214.zip
+      ZIP_NAME: InfiniR-cepheus-4.14.355-A16-KSUN-v3.3.0-33214-DIAGNOSTIC-NOWRITE.zip
 
     steps:
       - name: Checkout builder repo
@@ -291,6 +291,7 @@ jobs:
           grep -n 'linux/uaccess.h' KernelSU-Next/kernel/hook/syscall_event_bridge.c
           grep -n -E 'KSU_LEGACY_414_PATCH_MEMORY_COMPAT|__pte_to_phys|copy_to_kernel_nofault|ksu_flush_icache' \
             KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          grep -n 'KSU 4.14 diagnostic no-write' KernelSU-Next/kernel/hook/arm64/patch_memory.c
           grep -n -E 'ksu_lsm_for_each_entry|struct list_head \*head|offset LSM hook unsupported|unhook legacy list_head' \
             KernelSU-Next/kernel/hook/lsm_hook.c
           grep -n -E 'KSU_LEGACY_414_SU_MOUNT_NS_COMPAT|uapi/linux/mount.h' \
@@ -403,6 +404,8 @@ jobs:
             echo "Kernel source: ${KERNEL_REPO} branch ${KERNEL_BRANCH}"
             echo "Kernel version: $(make kernelversion)"
             echo "KernelSU-Next target: ${KSUN_TAG} / manager build 33214"
+            echo "Diagnostic safety: syscall target addresses are logged; writes are disabled"
+            echo "Expected result: boots for log capture; KernelSU manager remains unavailable"
             echo
             echo "ZIP SHA256:"
             cat "${ZIP_NAME}.sha256"
@@ -411,7 +414,7 @@ jobs:
       - name: Upload flashable package
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-cepheus-4.14.355-KSUN-33214
+          name: Mi9-cepheus-4.14.355-KSUN-33214-DIAGNOSTIC-NOWRITE
           path: |
             kernel/${{ env.ZIP_NAME }}
             kernel/${{ env.ZIP_NAME }}.sha256
