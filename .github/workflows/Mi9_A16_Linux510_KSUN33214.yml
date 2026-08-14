@@ -32,9 +32,10 @@ jobs:
             bc bison build-essential ccache curl flex git \
             libelf-dev libssl-dev libncurses-dev python3 rsync unzip zip \
             clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            dwarves
+            dwarves device-tree-compiler
           command -v pahole
           pahole --version
+          dtc --version
 
       - name: Add swap for kernel link stage
         run: |
@@ -93,6 +94,19 @@ jobs:
           test -s out/arch/arm64/boot/Image
           file out/arch/arm64/boot/Image
 
+      - name: Build native Linux 5.10 SM8150 device trees
+        working-directory: kernel510
+        run: |
+          export ARCH=arm64
+          export LLVM=1
+          echo "=== Native 5.10 SM8150 DTS files ==="
+          find arch/arm64/boot/dts/qcom -maxdepth 1 -type f -iname 'sm8150*.dts*' -print | sort || true
+          echo "=== Native 5.10 SM8150 DTB targets ==="
+          grep -E 'sm8150.*\.dtb' arch/arm64/boot/dts/qcom/Makefile || true
+          make -j2 O=out ARCH=arm64 LLVM=1 dtbs
+          find out/arch/arm64/boot/dts/qcom -maxdepth 1 -type f -iname 'sm8150*.dtb' -print | sort | tee /tmp/sm8150-dtbs.txt || true
+          test -s /tmp/sm8150-dtbs.txt
+
       - name: Inventory Mi9 4.14 donor for 5.10 port
         run: |
           git clone --depth=1 --branch "${DONOR_BRANCH}" "${DONOR_REPO}" donor414
@@ -114,17 +128,47 @@ jobs:
           } > port-report/cepheus-5.10-inventory.txt
           cat port-report/cepheus-5.10-inventory.txt
 
-      - name: Package baseline artifacts
+      - name: Generate Stage 2 cepheus DT migration report
         run: |
-          mkdir -p dist
+          mkdir -p port-report
+          {
+            echo "Mi9 cepheus -> Linux 5.10 Stage 2 DT migration"
+            echo "================================================"
+            echo
+            echo "=== Native 5.10 SM8150 DTBs built successfully ==="
+            cat /tmp/sm8150-dtbs.txt || true
+            echo
+            echo "=== Cepheus donor top-level includes ==="
+            sed -n '1,160p' donor414/arch/arm64/boot/dts/qcom/cepheus-sm8150-overlay.dts 2>/dev/null || true
+            echo
+            echo "=== Cepheus donor base includes ==="
+            sed -n '1,120p' donor414/arch/arm64/boot/dts/qcom/cepheus-sm8150.dtsi 2>/dev/null || true
+            echo
+            echo "=== Native 5.10 SM8150 source set ==="
+            find kernel510/arch/arm64/boot/dts/qcom -maxdepth 1 -type f -iname 'sm8150*.dts*' -print | sort || true
+            echo
+            echo "=== Initial migration rule ==="
+            echo "Use native Linux 5.10 SM8150 SoC DTSI as the base; port only cepheus board-specific nodes from the 4.14 donor."
+            echo "Do not copy Qualcomm downstream 4.14 SoC DTSI wholesale into 5.10."
+          } > port-report/cepheus-5.10-stage2-dt.txt
+          cat port-report/cepheus-5.10-stage2-dt.txt
+
+      - name: Package Stage 2 artifacts
+        run: |
+          rm -rf dist
+          mkdir -p dist/dtbs
           cp kernel510/out/arch/arm64/boot/Image dist/Image-linux-5.10-gki-ksun33214
           cp kernel510/out/.config dist/config-linux-5.10-gki-ksun33214
           cp port-report/cepheus-5.10-inventory.txt dist/
-          sha256sum dist/* > dist/SHA256SUMS
+          cp port-report/cepheus-5.10-stage2-dt.txt dist/
+          while read -r f; do
+            [ -s "$f" ] && cp "$f" dist/dtbs/
+          done < /tmp/sm8150-dtbs.txt
+          sha256sum dist/Image-* dist/config-* dist/*.txt dist/dtbs/* > dist/SHA256SUMS
 
-      - name: Upload 5.10 bring-up artifacts
+      - name: Upload 5.10 Stage 2 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-bringup-KSUN33214
+          name: Mi9-Linux510-Stage2-SM8150-DT-KSUN33214
           path: dist/
           if-no-files-found: error
