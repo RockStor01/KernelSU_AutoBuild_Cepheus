@@ -184,30 +184,6 @@ jobs:
               return None
           apply_patch("KernelSU-Next/kernel/include/util.h", "ksu_close_fd 4.14", patch_util)
 
-          # 9. lsm_hook.c: 4.14 list_head compat
-          def patch_lsm(s):
-              if "ksu_lsm_for_each_entry" in s:
-                  return None
-              changed = False
-              old = "#else\n    unsigned long heads_addr;\n    struct hlist_head *head;\n"
-              new = ("#else\n    unsigned long heads_addr;\n"
-                     "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n"
-                     "    struct list_head *head;\n#else\n    struct hlist_head *head;\n#endif\n")
-              if old in s:
-                  s = s.replace(old, new, 1)
-                  changed = True
-              if "ksu_lsm_for_each_entry" not in s and "static int ksu_lsm_hook_count;\n" in s:
-                  macros = ("\n#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n"
-                            "#define ksu_lsm_for_each_entry(pos, head) list_for_each_entry(pos, head, list)\n"
-                            "#else\n"
-                            "#define ksu_lsm_for_each_entry(pos, head) hlist_for_each_entry(pos, head, list)\n"
-                            "#endif\n")
-                  s = s.replace("static int ksu_lsm_hook_count;\n",
-                                "static int ksu_lsm_hook_count;\n" + macros, 1)
-                  changed = True
-              s = s.replace("hlist_for_each_entry (entry, head, list)", "ksu_lsm_for_each_entry(entry, head)")
-              return s if changed else None
-          apply_patch("KernelSU-Next/kernel/hook/lsm_hook.c", "4.14 list_head compat", patch_lsm)
 
           print("=== Compatibility patch done ===")
           PY
