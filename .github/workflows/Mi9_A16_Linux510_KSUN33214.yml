@@ -1,0 +1,114 @@
+name: Mi9 A16 - Linux 5.10 bring-up + KSUN 33214
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/ksun-5.10-port
+
+permissions:
+  contents: read
+
+jobs:
+  linux510-baseline:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    env:
+      COMMON_REPO: https://android.googlesource.com/kernel/common
+      COMMON_BRANCH: android13-5.10
+      DONOR_REPO: https://github.com/crdroidandroid/android_kernel_xiaomi_cepheus.git
+      DONOR_BRANCH: "16.0"
+      KSUN_TAG: v3.3.0
+
+    steps:
+      - name: Checkout builder repo
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex git \
+            libelf-dev libssl-dev libncurses-dev python3 rsync unzip zip \
+            clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Clone Android 5.10 common baseline
+        run: |
+          git clone --depth=1 --branch "${COMMON_BRANCH}" "${COMMON_REPO}" kernel510
+          cd kernel510
+          echo "=== 5.10 baseline ==="
+          git rev-parse HEAD
+          make kernelversion
+
+      - name: Integrate KernelSU-Next 33214
+        working-directory: kernel510
+        run: |
+          rm -rf KernelSU KernelSU-Next
+          curl -LSs \
+            "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
+            | bash -s "${KSUN_TAG}"
+          test -d KernelSU-Next
+          grep -R "KSU_VERSION" -n KernelSU-Next/kernel | head -20 || true
+
+      - name: Configure 5.10 arm64 baseline
+        working-directory: kernel510
+        run: |
+          export ARCH=arm64
+          export LLVM=1
+          rm -rf out
+          mkdir -p out
+          make O=out ARCH=arm64 LLVM=1 gki_defconfig
+          ./scripts/config --file out/.config --enable KSU
+          ./scripts/config --file out/.config --enable KPROBES
+          ./scripts/config --file out/.config --enable KPROBE_EVENTS
+          ./scripts/config --file out/.config --enable OVERLAY_FS
+          ./scripts/config --file out/.config --enable DEVTMPFS
+          ./scripts/config --file out/.config --enable TMPFS
+          make O=out ARCH=arm64 LLVM=1 olddefconfig
+          grep -E 'CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_OVERLAY_FS=' out/.config || true
+
+      - name: Build Linux 5.10 baseline Image
+        working-directory: kernel510
+        run: |
+          export ARCH=arm64
+          export LLVM=1
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 Image
+          test -s out/arch/arm64/boot/Image
+          file out/arch/arm64/boot/Image
+
+      - name: Inventory Mi9 4.14 donor for 5.10 port
+        run: |
+          git clone --depth=1 --branch "${DONOR_BRANCH}" "${DONOR_REPO}" donor414
+          mkdir -p port-report
+          {
+            echo "Mi9 cepheus Linux 5.10 bring-up inventory"
+            echo "========================================"
+            echo "5.10 common: ${COMMON_BRANCH}"
+            echo "4.14 donor: ${DONOR_REPO} ${DONOR_BRANCH}"
+            echo
+            echo "=== Cepheus DTS/DTSI ==="
+            find donor414/arch/arm64/boot/dts -type f \( -iname '*cepheus*' -o -iname '*sm8150*' \) 2>/dev/null | sort || true
+            echo
+            echo "=== Cepheus defconfigs ==="
+            find donor414/arch/arm64/configs -maxdepth 1 -type f -iname '*cepheus*' -o -iname '*sm8150*' 2>/dev/null | sort || true
+            echo
+            echo "=== Xiaomi-specific driver directories ==="
+            find donor414/drivers -maxdepth 4 -type d \( -iname '*xiaomi*' -o -iname '*goodix*' -o -iname '*fpc*' -o -iname '*qcom*' \) 2>/dev/null | sort | head -500 || true
+          } > port-report/cepheus-5.10-inventory.txt
+          cat port-report/cepheus-5.10-inventory.txt
+
+      - name: Package baseline artifacts
+        run: |
+          mkdir -p dist
+          cp kernel510/out/arch/arm64/boot/Image dist/Image-linux-5.10-gki-ksun33214
+          cp kernel510/out/.config dist/config-linux-5.10-gki-ksun33214
+          cp port-report/cepheus-5.10-inventory.txt dist/
+          sha256sum dist/* > dist/SHA256SUMS
+
+      - name: Upload 5.10 bring-up artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mi9-Linux510-bringup-KSUN33214
+          path: dist/
+          if-no-files-found: error
