@@ -18,10 +18,10 @@ s = s.replace('#define ksu_flush_icache(start, end) __flush_icache_range\n', '#i
 # before fixmap writes so the device can capture deterministic diagnostics.
 needle = '    void *map = set_fixmap_offset(FIX_TEXT_POKE0, phy);\n'
 replacement = (
-    '    pr_err("KSU 4.14 diagnostic no-write: dst=0x%lx phy=0x%lx len=%zu flags=%d\\n",\\n'
-    '           p, phy, len, flags);\\n'
-    '    return -EOPNOTSUPP;\\n'
-    '    void *map = set_fixmap_offset(FIX_TEXT_POKE0, phy);\\n'
+    '    pr_err("KSU 4.14 diagnostic no-write: dst=0x%lx phy=0x%lx len=%zu flags=%d\\n",\n'
+    '           p, phy, len, flags);\n'
+    '    return -EOPNOTSUPP;\n'
+    '    void *map = set_fixmap_offset(FIX_TEXT_POKE0, phy);\n'
 )
 if needle not in s:
     raise SystemExit('Expected fixmap write marker not found')
