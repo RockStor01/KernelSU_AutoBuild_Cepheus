@@ -245,9 +245,6 @@ if not p.is_file():
 
 s = p.read_text()
 
-# seccomp.filter_count was added in Linux 5.9.  Older kernels, including this
-# 4.14 tree, only have seccomp.mode and seccomp.filter.  Keep the upstream
-# reset on kernels that actually provide the field and omit it on legacy ones.
 old = '''    current->seccomp.mode = 0;
     current->seccomp.filter = NULL;
     atomic_set(&current->seccomp.filter_count, 0);
@@ -271,6 +268,100 @@ checks = (
 missing = [x for x in checks if x not in s]
 if missing:
     raise SystemExit("app_profile seccomp compatibility patch failed: " + ", ".join(missing))
+
+p.write_text(s)
+print(f"Patched {p}")
+
+# -----------------------------------------------------------------------------
+# ksud_integration.c nofault uaccess compatibility for Linux 4.14
+# -----------------------------------------------------------------------------
+p = kernel_root / "KernelSU-Next/kernel/runtime/ksud_integration.c"
+if not p.is_file():
+    raise SystemExit(f"ksud_integration.c not found: {p}")
+
+s = p.read_text()
+
+if "KSU_LEGACY_414_NOFAULT_UACCESS_COMPAT" not in s:
+    marker = '#include <linux/uaccess.h>\n'
+    if marker not in s:
+        raise SystemExit("ksud_integration uaccess include marker not found")
+    compat = r'''
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
+#define KSU_LEGACY_414_NOFAULT_UACCESS_COMPAT 1
+static inline int ksu_copy_from_user_nofault(void *dst,
+                                             const void __user *src,
+                                             size_t size)
+{
+    unsigned long left;
+
+    if (!access_ok(VERIFY_READ, src, size))
+        return -EFAULT;
+    pagefault_disable();
+    left = raw_copy_from_user(dst, src, size);
+    pagefault_enable();
+    return left ? -EFAULT : 0;
+}
+
+static inline int ksu_copy_to_user_nofault(void __user *dst,
+                                           const void *src,
+                                           size_t size)
+{
+    unsigned long left;
+
+    if (!access_ok(VERIFY_WRITE, dst, size))
+        return -EFAULT;
+    pagefault_disable();
+    left = raw_copy_to_user(dst, src, size);
+    pagefault_enable();
+    return left ? -EFAULT : 0;
+}
+
+static inline long ksu_strncpy_from_user_nofault(char *dst,
+                                                  const char __user *src,
+                                                  long count)
+{
+    long i;
+
+    if (count <= 0)
+        return 0;
+    if (!access_ok(VERIFY_READ, src, count))
+        return -EFAULT;
+
+    pagefault_disable();
+    for (i = 0; i < count; i++) {
+        char c;
+        if (raw_copy_from_user(&c, src + i, 1)) {
+            pagefault_enable();
+            return -EFAULT;
+        }
+        dst[i] = c;
+        if (!c) {
+            pagefault_enable();
+            return i;
+        }
+    }
+    pagefault_enable();
+    return count;
+}
+
+#define strncpy_from_user_nofault ksu_strncpy_from_user_nofault
+#define copy_from_user_nofault ksu_copy_from_user_nofault
+#define copy_to_user_nofault ksu_copy_to_user_nofault
+#endif
+'''
+    s = s.replace(marker, marker + compat, 1)
+
+checks = (
+    "KSU_LEGACY_414_NOFAULT_UACCESS_COMPAT",
+    "raw_copy_from_user(dst, src, size)",
+    "raw_copy_to_user(dst, src, size)",
+    "ksu_strncpy_from_user_nofault",
+    "#define copy_from_user_nofault ksu_copy_from_user_nofault",
+    "#define copy_to_user_nofault ksu_copy_to_user_nofault",
+)
+missing = [x for x in checks if x not in s]
+if missing:
+    raise SystemExit("ksud_integration nofault uaccess patch failed: " + ", ".join(missing))
 
 p.write_text(s)
 print(f"Patched {p}")
