@@ -13,9 +13,6 @@ if not p.is_file():
 
 s = p.read_text()
 
-# KernelSU-Next v3.3.0 targets newer kernels where mount UAPI constants live
-# in <uapi/linux/mount.h>. This crDroid Linux 4.14 tree has no such header;
-# the MS_* mount flags used here are provided by <linux/fs.h> / uapi fs.h.
 if "KSU_LEGACY_414_SU_MOUNT_NS_COMPAT" not in s:
     old = '#include <uapi/linux/mount.h>\n'
     if old not in s:
@@ -28,8 +25,6 @@ if "KSU_LEGACY_414_SU_MOUNT_NS_COMPAT" not in s:
     )
     s = s.replace(old, new, 1)
 
-# ksys_unshare() is not available in this Linux 4.14 tree; sys_unshare() is.
-# Keep newer kernels on ksys_unshare while using the native 4.14 syscall helper.
 if "KSU_LEGACY_UNSHARE_COMPAT" not in s:
     marker = '#define KSU_LEGACY_414_SU_MOUNT_NS_COMPAT 1\n'
     if marker not in s:
@@ -70,18 +65,11 @@ if not p.is_file():
 
 s = p.read_text()
 
-# Linux 4.14 fsnotify_ops exposes handle_event(), while newer kernels used by
-# KernelSU-Next expose handle_inode_event(). Add a 4.14-specific callback while
-# preserving the upstream callback unchanged for newer kernels.
 if "KSU_LEGACY_414_PKG_OBSERVER_COMPAT" not in s:
     marker = '#define MASK_SYSTEM (FS_CREATE | FS_MOVE | FS_EVENT_ON_CHILD)\n'
     if marker not in s:
         raise SystemExit("pkg_observer MASK_SYSTEM marker not found")
-    s = s.replace(
-        marker,
-        marker + '#define KSU_LEGACY_414_PKG_OBSERVER_COMPAT 1\n',
-        1,
-    )
+    s = s.replace(marker, marker + '#define KSU_LEGACY_414_PKG_OBSERVER_COMPAT 1\n', 1)
 
     old_cb = '''static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask,
                                   struct inode *inode, struct inode *dir,
@@ -152,8 +140,6 @@ static const struct fsnotify_ops ksu_ops = {
         raise SystemExit("Expected pkg_observer callback block not found")
     s = s.replace(old_cb, new_cb, 1)
 
-# Linux 4.14 has fsnotify_add_mark(mark, inode, mnt, allow_dups), not the newer
-# fsnotify_add_inode_mark() helper.
 old_add = '''\tif (fsnotify_add_inode_mark(m, inode, 0)) {
 \t\tfsnotify_put_mark(m);
 \t\treturn -EINVAL;
@@ -183,6 +169,73 @@ checks = (
 missing = [x for x in checks if x not in s]
 if missing:
     raise SystemExit("pkg_observer compatibility patch failed: " + ", ".join(missing))
+
+p.write_text(s)
+print(f"Patched {p}")
+
+# -----------------------------------------------------------------------------
+# allowlist.c task_work / task lifetime / fallthrough compatibility for 4.14
+# -----------------------------------------------------------------------------
+p = kernel_root / "KernelSU-Next/kernel/policy/allowlist.c"
+if not p.is_file():
+    raise SystemExit(f"allowlist.c not found: {p}")
+
+s = p.read_text()
+
+# Needed for LINUX_VERSION_CODE and for put_task_struct() on this 4.14 tree.
+if '#include <linux/version.h>' not in s:
+    marker = '#include <linux/task_work.h>\n'
+    if marker not in s:
+        raise SystemExit("allowlist task_work include marker not found")
+    s = s.replace(
+        marker,
+        marker + '#include <linux/version.h>\n'
+                 '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+                 '#include <linux/sched/task.h>\n'
+                 '#endif\n',
+        1,
+    )
+
+# Linux 4.14 task_work_add() takes bool notify; TWA_RESUME is a newer enum.
+if 'KSU_LEGACY_414_ALLOWLIST_COMPAT' not in s:
+    marker = '#define FILE_MAGIC 0x7f4b5355 // \' KSU\', u32\n'
+    if marker not in s:
+        raise SystemExit("allowlist FILE_MAGIC marker not found")
+    compat = (
+        '#define KSU_LEGACY_414_ALLOWLIST_COMPAT 1\n'
+        '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+        '#define KSU_TASK_WORK_NOTIFY true\n'
+        '#else\n'
+        '#define KSU_TASK_WORK_NOTIFY TWA_RESUME\n'
+        '#endif\n'
+    )
+    s = s.replace(marker, compat + marker, 1)
+
+if 'task_work_add(tsk, cb, TWA_RESUME)' in s:
+    s = s.replace('task_work_add(tsk, cb, TWA_RESUME)',
+                  'task_work_add(tsk, cb, KSU_TASK_WORK_NOTIFY)', 1)
+
+# The fallthrough macro is not available in this 4.14 source.  A recognized
+# comment is enough here because case 2 intentionally continues into case 3.
+if '\n        fallthrough;\n    case 3:' in s:
+    s = s.replace('\n        fallthrough;\n    case 3:',
+                  '\n#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+                  '        /* fall through */\n'
+                  '#else\n'
+                  '        fallthrough;\n'
+                  '#endif\n'
+                  '    case 3:', 1)
+
+checks = (
+    "KSU_LEGACY_414_ALLOWLIST_COMPAT",
+    "#include <linux/sched/task.h>",
+    "#define KSU_TASK_WORK_NOTIFY true",
+    "task_work_add(tsk, cb, KSU_TASK_WORK_NOTIFY)",
+    "/* fall through */",
+)
+missing = [x for x in checks if x not in s]
+if missing:
+    raise SystemExit("allowlist compatibility patch failed: " + ", ".join(missing))
 
 p.write_text(s)
 print(f"Patched {p}")
