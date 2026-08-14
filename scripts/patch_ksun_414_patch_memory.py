@@ -55,18 +55,11 @@ dispatch = kernel_root / "KernelSU-Next/kernel/supercall/dispatch.c"
 if not dispatch.is_file():
     raise SystemExit(f"dispatch.c not found: {dispatch}")
 d = dispatch.read_text()
-ni_old = 'ni_syscall = (unsigned long)ksu_resolve_symbol_for_functable_hook("__arm64_sys_ni_syscall");'
-ni_new = (
-    'ni_syscall = (unsigned long)ksu_resolve_symbol_for_functable_hook("__arm64_sys_ni_syscall");\n'
-    '    if (!ni_syscall) {\n'
-    '        ni_syscall = (unsigned long)ksu_resolve_symbol_for_functable_hook("sys_ni_syscall");\n'
-    '        pr_info("KSU 4.14 ni_syscall fallback: 0x%lx\\n", ni_syscall);\n'
-    '    }\n'
-)
-if ni_old in d:
-    d = d.replace(ni_old, ni_new, 1)
-if 'KSU 4.14 ni_syscall fallback' not in d:
-    raise SystemExit('Linux 4.14 ni_syscall symbol fallback patch failed')
+if '"__arm64_sys_ni_syscall"' not in d:
+    raise SystemExit('Expected arm64 ni_syscall symbol name not found')
+d = d.replace('"__arm64_sys_ni_syscall"', '"sys_ni_syscall"', 1)
+if '"sys_ni_syscall"' not in d:
+    raise SystemExit('Linux 4.14 ni_syscall symbol rename failed')
 if '#include <linux/sched/signal.h>' not in d:
     lines = d.splitlines(True)
     insert_at = 0
