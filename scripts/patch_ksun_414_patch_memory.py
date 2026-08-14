@@ -55,11 +55,12 @@ dispatch = kernel_root / "KernelSU-Next/kernel/supercall/dispatch.c"
 if not dispatch.is_file():
     raise SystemExit(f"dispatch.c not found: {dispatch}")
 d = dispatch.read_text()
-if '"__arm64_sys_ni_syscall"' not in d:
-    raise SystemExit('Expected arm64 ni_syscall symbol name not found')
-d = d.replace('"__arm64_sys_ni_syscall"', '"sys_ni_syscall"', 1)
+if '"__arm64_sys_ni_syscall"' in d:
+    d = d.replace('"__arm64_sys_ni_syscall"', '"sys_ni_syscall"', 1)
+elif '"sys_ni_syscall"' not in d:
+    raise SystemExit('Neither arm64 nor legacy ni_syscall symbol name found')
 if '"sys_ni_syscall"' not in d:
-    raise SystemExit('Linux 4.14 ni_syscall symbol rename failed')
+    raise SystemExit('Linux 4.14 ni_syscall symbol selection failed')
 if '#include <linux/sched/signal.h>' not in d:
     lines = d.splitlines(True)
     insert_at = 0
