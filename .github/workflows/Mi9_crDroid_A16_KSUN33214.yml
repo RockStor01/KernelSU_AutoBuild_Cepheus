@@ -72,34 +72,37 @@ jobs:
                       p.write_text(result)
                       print(f"  [PATCH] {filepath}: {desc}")
                   else:
-                      print(f"  [OK]    {filepath}: {desc} (already compatible)")
+                      print(f"  [OK]    {filepath}: {desc}")
               except Exception as e:
                   print(f"  [WARN]  {filepath}: {desc} failed: {e}")
 
-          # 1. DTC Makefile: 4.14 内核构建用 HOSTLOADLIBES 传递链接库
+          # 1. DTC: 4.14 用 HOSTLOADLIBES 而非 HOSTLDLIBS 传递链接库
           def patch_dtc(s):
               if 'HOSTLOADLIBES_dtc' in s:
                   return None
-              # 直接在末尾添加，不依赖原有行格式
-              return s + '\n# 4.14 compat: HOSTLDLIBS_dtc is ignored, use HOSTLOADLIBES_dtc\nHOSTLOADLIBES_dtc := -lyaml\n'
-          apply_patch('scripts/dtc/Makefile', 'HOSTLOADLIBES_dtc 4.14', patch_dtc)', patch_dtc)
+              lines = s.splitlines()
+              lines.append("")
+              lines.append("# 4.14 compat: HOSTLDLIBS_dtc is ignored by 4.14 build system")
+              lines.append("HOSTLOADLIBES_dtc := -lyaml")
+              return "\n".join(lines) + "\n"
+          apply_patch("scripts/dtc/Makefile", "HOSTLOADLIBES_dtc", patch_dtc)
 
           # 2. Makefile.lib: mkdtimg python2 -> python3
           def patch_mkdtimg(s):
-              if 'cmd_mkdtimg = python3 ' in s:
+              if "cmd_mkdtimg = python3 " in s:
                   return None
-              return s.replace('python2 $(srctree)/scripts/dtc/mkdtboimg.py',
-                               'python3 $(srctree)/scripts/dtc/mkdtboimg.py')
-          apply_patch('scripts/Makefile.lib', 'mkdtimg python3', patch_mkdtimg)
+              return s.replace("python2 $(srctree)/scripts/dtc/mkdtboimg.py",
+                               "python3 $(srctree)/scripts/dtc/mkdtboimg.py")
+          apply_patch("scripts/Makefile.lib", "mkdtimg python3", patch_mkdtimg)
 
           # 3. mkdtboimg.py: python2 -> python3
           def patch_mkdtbo(s):
               changed = False
-              if 'xrange(' in s:
-                  s = s.replace('xrange(', 'range(')
+              if "xrange(" in s:
+                  s = s.replace("xrange(", "range(")
                   changed = True
-              if 'if version is 0:' in s:
-                  s = s.replace('if version is 0:', 'if version == 0:')
+              if "if version is 0:" in s:
+                  s = s.replace("if version is 0:", "if version == 0:")
                   changed = True
               if 'dt_entry_buf = ""\n' in s:
                   s = s.replace('dt_entry_buf = ""\n', 'dt_entry_buf = b""\n', 1)
@@ -109,106 +112,104 @@ jobs:
                              "self.__metadata = bytearray(self.__metadata_size)", s)
                   changed = True
               return s if changed else None
-          apply_patch('scripts/dtc/mkdtboimg.py', 'python3 compat', patch_mkdtbo)
+          apply_patch("scripts/dtc/mkdtboimg.py", "python3 compat", patch_mkdtbo)
 
           # 4. syscall_hook.h: aarch64 syscall_fn_t typedef
           def patch_syscall_hook(s):
-              if 'typedef long (*syscall_fn_t)' in s:
+              if "typedef long (*syscall_fn_t)" in s:
                   return None
-              old = '#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n#endif\n'
-              new = ('#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n'
-                     '#elif defined(__aarch64__)\ntypedef long (*syscall_fn_t)(const struct pt_regs *regs);\n#endif\n')
+              old = "#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n#endif\n"
+              new = ("#if defined(__x86_64__)\ntypedef sys_call_ptr_t syscall_fn_t;\n"
+                     "#elif defined(__aarch64__)\ntypedef long (*syscall_fn_t)(const struct pt_regs *regs);\n#endif\n")
               if old in s:
                   return s.replace(old, new, 1)
               return None
-          apply_patch('KernelSU-Next/kernel/hook/syscall_hook.h', 'aarch64 syscall_fn_t', patch_syscall_hook)
+          apply_patch("KernelSU-Next/kernel/hook/syscall_hook.h", "aarch64 syscall_fn_t", patch_syscall_hook)
 
           # 5. sulog.h: add init.h
           def patch_sulog(s):
-              if '#include <linux/init.h>' in s:
+              if "#include <linux/init.h>" in s:
                   return None
-              if '#include <linux/types.h>' in s:
-                  return s.replace('#include <linux/types.h>\n',
-                                   '#include <linux/types.h>\n#include <linux/init.h>\n', 1)
+              if "#include <linux/types.h>" in s:
+                  return s.replace("#include <linux/types.h>\n",
+                                   "#include <linux/types.h>\n#include <linux/init.h>\n", 1)
               return None
-          apply_patch('KernelSU-Next/kernel/feature/sulog.h', 'init.h include', patch_sulog)
+          apply_patch("KernelSU-Next/kernel/feature/sulog.h", "init.h include", patch_sulog)
 
           # 6. sucompat.c: pgtable + strncpy_from_user_nofault
           def patch_sucompat(s):
               changed = False
-              if '#include <linux/pgtable.h>' in s:
-                  s = s.replace('#include <linux/pgtable.h>', '#include <asm/pgtable.h>')
+              if "#include <linux/pgtable.h>" in s:
+                  s = s.replace("#include <linux/pgtable.h>", "#include <asm/pgtable.h>")
                   changed = True
-              if 'define strncpy_from_user_nofault' not in s:
-                  compat = ('\n#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)\n'
-                            '#define strncpy_from_user_nofault(dst, src, count) \\\n'
-                            '    strncpy_from_user((dst), (src), (count))\n'
-                            '#endif\n')
+              if "define strncpy_from_user_nofault" not in s:
+                  compat = ("\n#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)\n"
+                            "#define strncpy_from_user_nofault(dst, src, count) \\\n"
+                            "    strncpy_from_user((dst), (src), (count))\n"
+                            "#endif\n")
                   if '#include "util.h"\n' in s:
                       s = s.replace('#include "util.h"\n', '#include "util.h"\n' + compat, 1)
                       changed = True
               return s if changed else None
-          apply_patch('KernelSU-Next/kernel/feature/sucompat.c', '4.14 pgtable+strncpy', patch_sucompat)
+          apply_patch("KernelSU-Next/kernel/feature/sucompat.c", "4.14 pgtable+strncpy", patch_sucompat)
 
           # 7. syscall_event_bridge.c: uaccess.h
           def patch_event_bridge(s):
-              if '#include <linux/uaccess.h>' in s:
+              if "#include <linux/uaccess.h>" in s:
                   return None
-              if '#include <linux/ptrace.h>\n' in s:
-                  return s.replace('#include <linux/ptrace.h>\n',
-                                   '#include <linux/ptrace.h>\n#include <linux/uaccess.h>\n', 1)
+              if "#include <linux/ptrace.h>\n" in s:
+                  return s.replace("#include <linux/ptrace.h>\n",
+                                   "#include <linux/ptrace.h>\n#include <linux/uaccess.h>\n", 1)
               return None
-          apply_patch('KernelSU-Next/kernel/hook/syscall_event_bridge.c', 'uaccess.h', patch_event_bridge)
+          apply_patch("KernelSU-Next/kernel/hook/syscall_event_bridge.c", "uaccess.h", patch_event_bridge)
 
-          # 8. util.h: ksu_close_fd 4.14 compat (sys_close)
+          # 8. util.h: ksu_close_fd 4.14 compat
           def patch_util(s):
-              if '#define ksu_close_fd sys_close' in s:
+              if "#define ksu_close_fd sys_close" in s:
                   return None
-              old = ('#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n'
-                     '#define ksu_close_fd close_fd\n'
-                     '#else\n'
-                     '#define ksu_close_fd ksys_close\n'
-                     '#endif\n')
-              new = ('#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n'
-                     '#define ksu_close_fd close_fd\n'
-                     '#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)\n'
-                     '#define ksu_close_fd ksys_close\n'
-                     '#else\n'
-                     '#define ksu_close_fd sys_close\n'
-                     '#endif\n')
+              old = ("#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n"
+                     "#define ksu_close_fd close_fd\n"
+                     "#else\n"
+                     "#define ksu_close_fd ksys_close\n"
+                     "#endif\n")
+              new = ("#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n"
+                     "#define ksu_close_fd close_fd\n"
+                     "#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)\n"
+                     "#define ksu_close_fd ksys_close\n"
+                     "#else\n"
+                     "#define ksu_close_fd sys_close\n"
+                     "#endif\n")
               if old in s:
                   return s.replace(old, new, 1)
               return None
-          apply_patch('KernelSU-Next/kernel/include/util.h', 'ksu_close_fd 4.14', patch_util)
+          apply_patch("KernelSU-Next/kernel/include/util.h", "ksu_close_fd 4.14", patch_util)
 
-          # 9. lsm_hook.c: 4.14 list_head compat (crDroid 4.14 may use list_head)
+          # 9. lsm_hook.c: 4.14 list_head compat
           def patch_lsm(s):
-              if 'ksu_lsm_for_each_entry' in s:
-                  return None  # already patched
+              if "ksu_lsm_for_each_entry" in s:
+                  return None
               changed = False
-              # list_head vs hlist_head for < 4.17
-              old = '#else\n    unsigned long heads_addr;\n    struct hlist_head *head;\n'
-              new = ('#else\n    unsigned long heads_addr;\n'
-                     '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
-                     '    struct list_head *head;\n#else\n    struct hlist_head *head;\n#endif\n')
+              old = "#else\n    unsigned long heads_addr;\n    struct hlist_head *head;\n"
+              new = ("#else\n    unsigned long heads_addr;\n"
+                     "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n"
+                     "    struct list_head *head;\n#else\n    struct hlist_head *head;\n#endif\n")
               if old in s:
                   s = s.replace(old, new, 1)
                   changed = True
-              # iterator macro
-              if 'ksu_lsm_for_each_entry' not in s and 'static int ksu_lsm_hook_count;\n' in s:
-                  macros = ('\n#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
-                            '#define ksu_lsm_for_each_entry(pos, head) list_for_each_entry(pos, head, list)\n'
-                            '#else\n'
-                            '#define ksu_lsm_for_each_entry(pos, head) hlist_for_each_entry(pos, head, list)\n'
-                            '#endif\n')
-                  s = s.replace('static int ksu_lsm_hook_count;\n',
-                                'static int ksu_lsm_hook_count;\n' + macros, 1)
+              if "ksu_lsm_for_each_entry" not in s and "static int ksu_lsm_hook_count;\n" in s:
+                  macros = ("\n#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n"
+                            "#define ksu_lsm_for_each_entry(pos, head) list_for_each_entry(pos, head, list)\n"
+                            "#else\n"
+                            "#define ksu_lsm_for_each_entry(pos, head) hlist_for_each_entry(pos, head, list)\n"
+                            "#endif\n")
+                  s = s.replace("static int ksu_lsm_hook_count;\n",
+                                "static int ksu_lsm_hook_count;\n" + macros, 1)
                   changed = True
-              s = s.replace('hlist_for_each_entry (entry, head, list)', 'ksu_lsm_for_each_entry(entry, head)')
+              s = s.replace("hlist_for_each_entry (entry, head, list)", "ksu_lsm_for_each_entry(entry, head)")
               return s if changed else None
-          apply_patch('KernelSU-Next/kernel/hook/lsm_hook.c', '4.14 list_head compat', patch_lsm)
+          apply_patch("KernelSU-Next/kernel/hook/lsm_hook.c", "4.14 list_head compat", patch_lsm)
 
-          print("=== Compatibility patch done (tolerant mode) ===")
+          print("=== Compatibility patch done ===")
           PY
       - name: Patch 4.14 missing KSU symbols
         working-directory: kernel
