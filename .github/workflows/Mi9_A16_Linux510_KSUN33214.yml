@@ -83,40 +83,101 @@ jobs:
           find "$(pwd)/out/arch/arm64/boot/dts/qcom" -type f -name 'sm8150*.dtb' -print | sort | tee /tmp/sm8150-dtbs.txt
           test -s /tmp/sm8150-dtbs.txt
 
-      - name: Inventory Mi9 4.14 donor for 5.10 port
+      - name: Clone Mi9 4.14 donor
         run: |
           git clone --depth=1 --branch "${DONOR_BRANCH}" "${DONOR_REPO}" donor414
-          mkdir -p port-report
-          find donor414/arch/arm64/boot/dts -type f \( -iname '*cepheus*' -o -iname '*sm8150*' \) 2>/dev/null | sort > port-report/cepheus-5.10-inventory.txt
+          echo "Donor commit: $(git -C donor414 rev-parse HEAD)"
 
-      - name: Generate Stage 2 cepheus DT migration report
+      - name: Stage 3 - inventory cepheus board DT sources
         run: |
+          set -euxo pipefail
+          mkdir -p port-report/donor-dts
+          find donor414/arch/arm64/boot/dts -type f \( -iname '*cepheus*.dts' -o -iname '*cepheus*.dtsi' -o -iname '*sm8150*.dts' -o -iname '*sm8150*.dtsi' \) | sort | tee port-report/cepheus-5.10-inventory.txt
+          test -s port-report/cepheus-5.10-inventory.txt
+          while IFS= read -r f; do
+            cp --parents "$f" port-report/donor-dts/
+          done < port-report/cepheus-5.10-inventory.txt
+
+      - name: Stage 3 - extract board-specific migration candidates
+        run: |
+          set -euxo pipefail
           mkdir -p port-report
+          DONOR_FILES=$(find donor414/arch/arm64/boot/dts -type f \( -iname '*cepheus*.dts' -o -iname '*cepheus*.dtsi' \) | sort)
           {
-            echo "Mi9 cepheus -> Linux 5.10 Stage 2 DT migration"
+            echo "Mi9 cepheus -> Linux 5.10 Stage 3 board DT analysis"
+            echo "====================================================="
+            echo
+            echo "5.10 baseline: ${COMMON_BRANCH}"
+            echo "4.14 donor: ${DONOR_REPO} ${DONOR_BRANCH}"
+            echo "Donor commit: $(git -C donor414 rev-parse HEAD)"
+            echo
             echo "Native Linux 5.10 SM8150 DTBs:"
             cat /tmp/sm8150-dtbs.txt
-            echo "Use native Linux 5.10 SM8150 SoC DTSI as the base; port only cepheus board-specific nodes from the 4.14 donor."
-          } > port-report/cepheus-5.10-stage2-dt.txt
+            echo
+            echo "Cepheus board source files:"
+            printf '%s\n' "$DONOR_FILES"
+            echo
+            echo "Board identity / compatible strings:"
+            grep -HnE 'model[[:space:]]*=|compatible[[:space:]]*=' $DONOR_FILES || true
+            echo
+            echo "Explicitly enabled/disabled nodes:"
+            grep -HnE 'status[[:space:]]*=[[:space:]]*"(okay|disabled)"' $DONOR_FILES || true
+            echo
+            echo "Likely board peripherals/references requiring 5.10 mapping:"
+            grep -HnEi 'panel|display|dsi|touch|goodix|synaptics|focal|camera|cci|flash|audio|wcd|speaker|amp|nfc|fingerprint|fpc|goodix|battery|charger|usb|typec|wifi|wlan|bluetooth|bt|vibrator|haptics|led|gpio|regulator' $DONOR_FILES || true
+          } > port-report/cepheus-5.10-stage3-analysis.txt
+          sed -n '1,260p' port-report/cepheus-5.10-stage3-analysis.txt
 
-      - name: Package Stage 2 artifacts
+      - name: Stage 3 - dump native 5.10 SM8150 DTB for structural comparison
+        run: |
+          set -euxo pipefail
+          mkdir -p port-report/native510
+          BASE_DTB=$(find kernel510/out/arch/arm64/boot/dts/qcom -type f -name 'sm8150-mtp*.dtb' | head -n1)
+          if [ -z "$BASE_DTB" ]; then
+            BASE_DTB=$(find kernel510/out/arch/arm64/boot/dts/qcom -type f -name 'sm8150*.dtb' | head -n1)
+          fi
+          test -n "$BASE_DTB"
+          dtc -I dtb -O dts -o port-report/native510/sm8150-5.10-base.dts "$BASE_DTB"
+          grep -nE 'model[[:space:]]*=|compatible[[:space:]]*=' port-report/native510/sm8150-5.10-base.dts | head -n 80 > port-report/native510/identity.txt || true
+
+      - name: Stage 3 - generate migration plan
+        run: |
+          cat > port-report/README-STAGE3.txt <<'EOF'
+          Linux 5.10 cepheus bring-up - Stage 3
+
+          This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
+          A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
+
+          Next porting order:
+          1. Start from the native Linux 5.10 SM8150 SoC description.
+          2. Port cepheus regulators/GPIO/pinctrl and reserved-memory references.
+          3. Port storage/USB/Type-C and basic power/charger nodes needed for boot.
+          4. Port display/touch.
+          5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
+          6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
+
+          cepheus-5.10-stage3-analysis.txt contains the donor-side candidates used for the next patch.
+          native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
+          EOF
+
+      - name: Package Stage 3 artifacts
         run: |
           set -euxo pipefail
           rm -rf dist
           mkdir -p dist/dtbs
           cp kernel510/out/arch/arm64/boot/Image dist/Image-linux-5.10-gki-ksun33214
           cp kernel510/out/.config dist/config-linux-5.10-gki-ksun33214
-          cp port-report/cepheus-5.10-inventory.txt dist/
-          cp port-report/cepheus-5.10-stage2-dt.txt dist/
+          cp -a port-report/. dist/
           find kernel510/out/arch/arm64/boot/dts/qcom -type f -name 'sm8150*.dtb' -exec cp -v {} dist/dtbs/ \;
           test -s dist/Image-linux-5.10-gki-ksun33214
+          test -s dist/cepheus-5.10-stage3-analysis.txt
           test "$(find dist/dtbs -type f -name '*.dtb' | wc -l)" -gt 0
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/SHA256SUMS
 
-      - name: Upload 5.10 Stage 2 artifacts
+      - name: Upload 5.10 Stage 3 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage2-SM8150-DT-KSUN33214
+          name: Mi9-Linux510-Stage3-Cepheus-DT-Analysis-KSUN33214
           path: dist/
           if-no-files-found: error
