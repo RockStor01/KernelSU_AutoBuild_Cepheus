@@ -46,6 +46,21 @@ if '#include <linux/sched/signal.h>' not in d:
     raise SystemExit('dispatch scheduler compatibility patch failed')
 print(f"Patched {dispatch} for Linux 4.14 scheduler declarations")
 
+# Linux 4.14 task_work_add() takes a bool notify/resume argument; the newer
+# KernelSU-Next source passes TWA_RESUME, which is not defined on 4.14.
+supercall = kernel_root / "KernelSU-Next/kernel/supercall/supercall.c"
+if not supercall.is_file():
+    raise SystemExit(f"supercall.c not found: {supercall}")
+sc = supercall.read_text()
+old = 'task_work_add(current, &tw->cb, TWA_RESUME)'
+new = 'task_work_add(current, &tw->cb, true)'
+if old in sc:
+    sc = sc.replace(old, new, 1)
+if 'TWA_RESUME' in sc:
+    raise SystemExit('Linux 4.14 task_work compatibility patch failed')
+supercall.write_text(sc)
+print(f"Patched {supercall} for Linux 4.14 task_work API")
+
 # Chain existing compatibility helpers.
 for helper_name in ("patch_ksun_414_file_wrapper.py", "patch_ksun_414_seccomp_cache.py", "patch_ksun_414_sepolicy.py"):
     helper = Path(__file__).with_name(helper_name)
