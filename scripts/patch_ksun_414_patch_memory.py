@@ -51,6 +51,21 @@ if missing:
 p.write_text(s)
 print(f"Patched {p}")
 
+# Linux 4.14 has min/max helpers through linux/kernel.h but does not provide
+# the newer standalone linux/minmax.h header used by KSUN v3.3.0 sulog.
+sulog_event = kernel_root / "KernelSU-Next/kernel/sulog/event.c"
+if not sulog_event.is_file():
+    raise SystemExit(f"sulog event.c not found: {sulog_event}")
+event_src = sulog_event.read_text()
+if '#include <linux/minmax.h>\n' in event_src:
+    event_src = event_src.replace('#include <linux/minmax.h>\n', '#include <linux/kernel.h>\n', 1)
+if '#include <linux/minmax.h>' in event_src:
+    raise SystemExit("sulog minmax compatibility patch failed")
+if '#include <linux/kernel.h>' not in event_src:
+    raise SystemExit("sulog legacy kernel.h include missing")
+sulog_event.write_text(event_src)
+print(f"Patched {sulog_event} for Linux 4.14 min/max compatibility")
+
 import subprocess
 
 # Chain Linux 4.14 file_wrapper compatibility patch
