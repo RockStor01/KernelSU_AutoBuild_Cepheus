@@ -27,7 +27,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             bc bison build-essential ccache curl flex git \
-            libelf-dev libssl-dev libncurses-dev \
+            libelf-dev libssl-dev libncurses-dev libyaml-dev \
             python3 rsync unzip zip \
             clang lld llvm \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
@@ -76,18 +76,14 @@ jobs:
               except Exception as e:
                   print(f"  [WARN]  {filepath}: {desc} failed: {e}")
 
-          # 1. DTC Makefile: 禁用 YAML 支持（4.14 无 libyaml-dev）
+          # 1. DTC Makefile: 确保 YAML 支持正常（已安装 libyaml-dev）
+          #    如果 pkg-config 检测有问题，强制启用 YAML 或禁用
           def patch_dtc(s):
-              if '-DNO_YAML' in s:
-                  return None
-              s = re.sub(r'HOSTLDLIBS_dtc[^\n]*', 'HOSTLDLIBS_dtc =', s)
-              s = re.sub(r'yamltree\.o\s*', '', s)
-              if 'HOST_EXTRACFLAGS' in s:
-                  s = s.replace('HOST_EXTRACFLAGS', 'HOST_EXTRACFLAGS += -DNO_YAML\n#', 1)
-              else:
-                  s += '\nHOST_EXTRACFLAGS += -DNO_YAML\n'
+              # 移除可能损坏的 HOSTLDLIBS_dtc 行，确保用 pkg-config
+              if 'HOSTLDLIBS_dtc' in s and 'pkg-config' not in s.split('HOSTLDLIBS_dtc')[1].split('\n')[0]:
+                  s = re.sub(r'HOSTLDLIBS_dtc[^\n]*', 'HOSTLDLIBS_dtc := $(shell pkg-config yaml-0.1 --libs 2>/dev/null)', s)
               return s
-          apply_patch('scripts/dtc/Makefile', 'disable YAML', patch_dtc)
+          apply_patch('scripts/dtc/Makefile', 'YAML libs fix', patch_dtc)
 
           # 2. Makefile.lib: mkdtimg python2 -> python3
           def patch_mkdtimg(s):
