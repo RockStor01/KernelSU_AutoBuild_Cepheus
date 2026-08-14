@@ -182,7 +182,6 @@ if not p.is_file():
 
 s = p.read_text()
 
-# Needed for LINUX_VERSION_CODE and for put_task_struct() on this 4.14 tree.
 if '#include <linux/version.h>' not in s:
     marker = '#include <linux/task_work.h>\n'
     if marker not in s:
@@ -196,7 +195,6 @@ if '#include <linux/version.h>' not in s:
         1,
     )
 
-# Linux 4.14 task_work_add() takes bool notify; TWA_RESUME is a newer enum.
 if 'KSU_LEGACY_414_ALLOWLIST_COMPAT' not in s:
     marker = '#define FILE_MAGIC 0x7f4b5355 // \' KSU\', u32\n'
     if marker not in s:
@@ -215,8 +213,6 @@ if 'task_work_add(tsk, cb, TWA_RESUME)' in s:
     s = s.replace('task_work_add(tsk, cb, TWA_RESUME)',
                   'task_work_add(tsk, cb, KSU_TASK_WORK_NOTIFY)', 1)
 
-# The fallthrough macro is not available in this 4.14 source.  A recognized
-# comment is enough here because case 2 intentionally continues into case 3.
 if '\n        fallthrough;\n    case 3:' in s:
     s = s.replace('\n        fallthrough;\n    case 3:',
                   '\n#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
@@ -236,6 +232,45 @@ checks = (
 missing = [x for x in checks if x not in s]
 if missing:
     raise SystemExit("allowlist compatibility patch failed: " + ", ".join(missing))
+
+p.write_text(s)
+print(f"Patched {p}")
+
+# -----------------------------------------------------------------------------
+# app_profile.c seccomp compatibility for kernels before 5.9
+# -----------------------------------------------------------------------------
+p = kernel_root / "KernelSU-Next/kernel/policy/app_profile.c"
+if not p.is_file():
+    raise SystemExit(f"app_profile.c not found: {p}")
+
+s = p.read_text()
+
+# seccomp.filter_count was added in Linux 5.9.  Older kernels, including this
+# 4.14 tree, only have seccomp.mode and seccomp.filter.  Keep the upstream
+# reset on kernels that actually provide the field and omit it on legacy ones.
+old = '''    current->seccomp.mode = 0;
+    current->seccomp.filter = NULL;
+    atomic_set(&current->seccomp.filter_count, 0);
+'''
+new = '''    current->seccomp.mode = 0;
+    current->seccomp.filter = NULL;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
+    atomic_set(&current->seccomp.filter_count, 0);
+#endif
+'''
+if 'KERNEL_VERSION(5, 9, 0)' not in s:
+    if old not in s:
+        raise SystemExit("Expected app_profile seccomp reset block not found")
+    s = s.replace(old, new, 1)
+
+checks = (
+    "current->seccomp.filter = NULL;",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)",
+    "atomic_set(&current->seccomp.filter_count, 0);",
+)
+missing = [x for x in checks if x not in s]
+if missing:
+    raise SystemExit("app_profile seccomp compatibility patch failed: " + ", ".join(missing))
 
 p.write_text(s)
 print(f"Patched {p}")
