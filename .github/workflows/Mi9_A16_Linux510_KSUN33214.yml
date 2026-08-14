@@ -28,14 +28,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache curl flex git \
-            libelf-dev libssl-dev libncurses-dev python3 rsync unzip zip \
-            clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            dwarves device-tree-compiler
-          command -v pahole
-          pahole --version
-          dtc --version
+          sudo apt-get install -y bc bison build-essential ccache curl flex git libelf-dev libssl-dev libncurses-dev python3 rsync unzip zip clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu dwarves device-tree-compiler
 
       - name: Add swap for kernel link stage
         run: |
@@ -44,13 +37,11 @@ jobs:
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          free -h
 
       - name: Clone Android 5.10 common baseline
         run: |
           git clone --depth=1 --branch "${COMMON_BRANCH}" "${COMMON_REPO}" kernel510
           cd kernel510
-          echo "=== 5.10 baseline ==="
           git rev-parse HEAD
           make kernelversion
 
@@ -58,19 +49,14 @@ jobs:
         working-directory: kernel510
         run: |
           rm -rf KernelSU KernelSU-Next
-          curl -LSs \
-            "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
-            | bash -s "${KSUN_TAG}"
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "${KSUN_TAG}"
           test -d KernelSU-Next
-          grep -R "KSU_VERSION" -n KernelSU-Next/kernel | head -20 || true
 
       - name: Configure 5.10 arm64 baseline
         working-directory: kernel510
         run: |
-          export ARCH=arm64
-          export LLVM=1
-          rm -rf out
-          mkdir -p out
+          export ARCH=arm64 LLVM=1
+          rm -rf out && mkdir -p out
           make O=out ARCH=arm64 LLVM=1 gki_defconfig
           ./scripts/config --file out/.config --enable KSU
           ./scripts/config --file out/.config --enable KPROBES
@@ -83,91 +69,50 @@ jobs:
           ./scripts/config --file out/.config --disable LTO_CLANG || true
           ./scripts/config --file out/.config --enable LTO_NONE || true
           make O=out ARCH=arm64 LLVM=1 olddefconfig
-          grep -E 'CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_OVERLAY_FS=|CONFIG_LTO|CONFIG_DEBUG_INFO_BTF' out/.config || true
 
       - name: Build Linux 5.10 baseline Image
         working-directory: kernel510
         run: |
-          export ARCH=arm64
-          export LLVM=1
           make -j2 O=out ARCH=arm64 LLVM=1 Image
           test -s out/arch/arm64/boot/Image
-          file out/arch/arm64/boot/Image
 
       - name: Build native Linux 5.10 SM8150 device trees
         working-directory: kernel510
         run: |
-          export ARCH=arm64
-          export LLVM=1
-          echo "=== Native 5.10 SM8150 DTS files ==="
-          find arch/arm64/boot/dts/qcom -maxdepth 1 -type f -iname 'sm8150*.dts*' -print | sort || true
-          echo "=== Native 5.10 SM8150 DTB targets ==="
-          grep -E 'sm8150.*\.dtb' arch/arm64/boot/dts/qcom/Makefile || true
           make -j2 O=out ARCH=arm64 LLVM=1 dtbs
-          find out/arch/arm64/boot/dts/qcom -maxdepth 1 -type f -iname 'sm8150*.dtb' -print | sort | tee /tmp/sm8150-dtbs.txt || true
+          find "$(pwd)/out/arch/arm64/boot/dts/qcom" -type f -name 'sm8150*.dtb' -print | sort | tee /tmp/sm8150-dtbs.txt
           test -s /tmp/sm8150-dtbs.txt
 
       - name: Inventory Mi9 4.14 donor for 5.10 port
         run: |
           git clone --depth=1 --branch "${DONOR_BRANCH}" "${DONOR_REPO}" donor414
           mkdir -p port-report
-          {
-            echo "Mi9 cepheus Linux 5.10 bring-up inventory"
-            echo "========================================"
-            echo "5.10 common: ${COMMON_BRANCH}"
-            echo "4.14 donor: ${DONOR_REPO} ${DONOR_BRANCH}"
-            echo
-            echo "=== Cepheus DTS/DTSI ==="
-            find donor414/arch/arm64/boot/dts -type f \( -iname '*cepheus*' -o -iname '*sm8150*' \) 2>/dev/null | sort || true
-            echo
-            echo "=== Cepheus defconfigs ==="
-            find donor414/arch/arm64/configs -maxdepth 1 -type f \( -iname '*cepheus*' -o -iname '*sm8150*' \) 2>/dev/null | sort || true
-            echo
-            echo "=== Xiaomi-specific driver directories ==="
-            find donor414/drivers -maxdepth 4 -type d \( -iname '*xiaomi*' -o -iname '*goodix*' -o -iname '*fpc*' -o -iname '*qcom*' \) 2>/dev/null | sort | head -500 || true
-          } > port-report/cepheus-5.10-inventory.txt
-          cat port-report/cepheus-5.10-inventory.txt
+          find donor414/arch/arm64/boot/dts -type f \( -iname '*cepheus*' -o -iname '*sm8150*' \) 2>/dev/null | sort > port-report/cepheus-5.10-inventory.txt
 
       - name: Generate Stage 2 cepheus DT migration report
         run: |
           mkdir -p port-report
           {
             echo "Mi9 cepheus -> Linux 5.10 Stage 2 DT migration"
-            echo "================================================"
-            echo
-            echo "=== Native 5.10 SM8150 DTBs built successfully ==="
-            cat /tmp/sm8150-dtbs.txt || true
-            echo
-            echo "=== Cepheus donor top-level includes ==="
-            sed -n '1,160p' donor414/arch/arm64/boot/dts/qcom/cepheus-sm8150-overlay.dts 2>/dev/null || true
-            echo
-            echo "=== Cepheus donor base includes ==="
-            sed -n '1,120p' donor414/arch/arm64/boot/dts/qcom/cepheus-sm8150.dtsi 2>/dev/null || true
-            echo
-            echo "=== Native 5.10 SM8150 source set ==="
-            find kernel510/arch/arm64/boot/dts/qcom -maxdepth 1 -type f -iname 'sm8150*.dts*' -print | sort || true
-            echo
-            echo "=== Initial migration rule ==="
+            echo "Native Linux 5.10 SM8150 DTBs:"
+            cat /tmp/sm8150-dtbs.txt
             echo "Use native Linux 5.10 SM8150 SoC DTSI as the base; port only cepheus board-specific nodes from the 4.14 donor."
-            echo "Do not copy Qualcomm downstream 4.14 SoC DTSI wholesale into 5.10."
           } > port-report/cepheus-5.10-stage2-dt.txt
-          cat port-report/cepheus-5.10-stage2-dt.txt
 
       - name: Package Stage 2 artifacts
         run: |
+          set -euxo pipefail
           rm -rf dist
           mkdir -p dist/dtbs
           cp kernel510/out/arch/arm64/boot/Image dist/Image-linux-5.10-gki-ksun33214
           cp kernel510/out/.config dist/config-linux-5.10-gki-ksun33214
           cp port-report/cepheus-5.10-inventory.txt dist/
           cp port-report/cepheus-5.10-stage2-dt.txt dist/
-          while IFS= read -r f; do
-            [ -n "$f" ] || continue
-            [ -s "$f" ] && cp "$f" dist/dtbs/
-          done < /tmp/sm8150-dtbs.txt
-          find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
+          find kernel510/out/arch/arm64/boot/dts/qcom -type f -name 'sm8150*.dtb' -exec cp -v {} dist/dtbs/ \;
           test -s dist/Image-linux-5.10-gki-ksun33214
-          test -n "$(find dist/dtbs -type f -name '*.dtb' -print -quit)"
+          test "$(find dist/dtbs -type f -name '*.dtb' | wc -l)" -gt 0
+          (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          cat dist/SHA256SUMS
 
       - name: Upload 5.10 Stage 2 artifacts
         uses: actions/upload-artifact@v4
