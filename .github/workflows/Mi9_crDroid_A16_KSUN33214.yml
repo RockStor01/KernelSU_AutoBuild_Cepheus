@@ -375,7 +375,17 @@ jobs:
               -e 's/^device\.name3=.*/device.name3=/' \
               -e 's/^device\.name4=.*/device.name4=/' \
               -e 's/^device\.name5=.*/device.name5=/' \
-              AnyKernel3/anykernel.sh || true
+              -e 's|^kernel\.string=.*|kernel.string=InfiniR 4.14.355 for Xiaomi Mi 9 (cepheus)|' \
+              -e 's|^block=.*|block=auto|' \
+              -e 's/^is_slot_device=.*/is_slot_device=auto/' \
+              AnyKernel3/anykernel.sh
+          fi
+          grep -q '^device.name1=cepheus$' AnyKernel3/anykernel.sh
+          grep -q '^block=auto$' AnyKernel3/anykernel.sh
+          grep -q '^is_slot_device=auto$' AnyKernel3/anykernel.sh
+          if grep -q '/omap/' AnyKernel3/anykernel.sh; then
+            echo "Refusing to package AnyKernel3 with the OMAP example boot path"
+            exit 1
           fi
           cd AnyKernel3
           zip -r9 "../${ZIP_NAME}" . -x '.git/*' '.github/*' 'README.md' '*.zip'
