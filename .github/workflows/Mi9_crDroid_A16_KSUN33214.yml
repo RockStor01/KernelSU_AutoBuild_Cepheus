@@ -185,6 +185,35 @@ jobs:
           apply_patch("KernelSU-Next/kernel/include/util.h", "ksu_close_fd 4.14", patch_util)
 
 
+          # 9. lsm_hook.c: 4.14 用 list_head 而非 hlist_head
+          def patch_lsm(s):
+              if "ksu_lsm_414_compat" in s:
+                  return None
+              changed = False
+              s = s.replace("struct hlist_head *head", "struct list_head *head")
+              s = s.replace("(struct hlist_head *)", "(struct list_head *)")
+              s = s.replace("hlist_for_each_entry", "list_for_each_entry")
+              s = s.replace("hlist_entry(", "list_entry(")
+              s = s.replace("if (head->first)", "if (head->next != head)")
+              old_ins = """                    selected_entry = &hook->list;
+                    hook->list.head = head;
+                    hook->list.list.next = NULL;
+                    hook->list.list.pprev = &head->first;
+                    hook->list.lsm = \"ksu\";"""
+              new_ins = """                    selected_entry = &hook->list;
+                    hook->list.head = head;
+                    list_add(&hook->list.list, head);
+                    hook->list.lsm = \"ksu\"; /* ksu_lsm_414_compat */"""
+              if old_ins in s:
+                  s = s.replace(old_ins, new_ins)
+                  changed = True
+              s = s.replace("&head->first", "&head->next")
+              s = s.replace("head->first", "head->next")
+              if "list_for_each_entry" in s or "struct list_head *head" in s:
+                  changed = True
+              return s if changed else None
+          apply_patch("KernelSU-Next/kernel/hook/lsm_hook.c", "4.14 list_head compat", patch_lsm)
+
           print("=== Compatibility patch done ===")
           PY
       - name: Patch 4.14 missing KSU symbols
