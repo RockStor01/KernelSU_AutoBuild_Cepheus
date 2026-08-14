@@ -22,7 +22,6 @@
 #include <linux/ptrace.h>
 #include <linux/gfp.h>
 #include <linux/errno.h>
-#include <linux/filename.h>
 
 /* ============================================================
  *  原版 KernelSU 手动钩子 (no-op stubs)
