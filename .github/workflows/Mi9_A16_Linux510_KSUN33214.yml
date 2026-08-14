@@ -190,10 +190,38 @@ jobs:
             echo "compile_result=needs_backport_fixes" >> ../port-report/stage4/STATUS.txt
           fi
 
+      - name: Stage 5 - validate cepheus early-boot DT and pair with kernel
+        run: |
+          set -euxo pipefail
+          DTB=kernel510/out/arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dtb
+          IMAGE=kernel510/out/arch/arm64/boot/Image
+          test -s "$DTB"
+          test -s "$IMAGE"
+          mkdir -p port-report/stage5
+          MODEL=$(fdtget -t s "$DTB" / model)
+          COMPATIBLE=$(fdtget -t s "$DTB" / compatible)
+          test "$MODEL" = "Xiaomi Mi 9"
+          printf '%s\n' "$COMPATIBLE" | grep -q 'xiaomi,cepheus'
+          dtc -I dtb -O dts -o port-report/stage5/sm8150-xiaomi-cepheus.validated.dts "$DTB"
+          grep -q 'reserved-memory' port-report/stage5/sm8150-xiaomi-cepheus.validated.dts
+          grep -q 'qcom,rmtfs-mem' port-report/stage5/sm8150-xiaomi-cepheus.validated.dts
+          cp "$IMAGE" port-report/stage5/Image-linux-5.10-gki-ksun33214
+          cp "$DTB" port-report/stage5/sm8150-xiaomi-cepheus.dtb
+          {
+            echo "Linux 5.10 cepheus Stage 5 early-boot pair"
+            echo "Model: $MODEL"
+            echo "Compatible: $COMPATIBLE"
+            echo "Verified: real cepheus DTB identity, reserved-memory and RMTFS map"
+            echo "Included: kernel Image and DTB as separate files"
+            echo "Safety: engineering artifact only; not a boot.img and not flashable"
+            echo "Missing validation: storage, display panel, touch, WLAN/BT, modem and real-device boot"
+          } > port-report/stage5/STATUS.txt
+          (cd port-report/stage5 && sha256sum Image-linux-5.10-gki-ksun33214 sm8150-xiaomi-cepheus.dtb > SHA256SUMS)
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 4
+          Linux 5.10 cepheus bring-up - Stage 5
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -206,11 +234,11 @@ jobs:
           5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
           6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
 
-          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.
+          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
-      - name: Package Stage 3 artifacts
+      - name: Package Stage 5 artifacts
         run: |
           set -euxo pipefail
           rm -rf dist
@@ -225,9 +253,9 @@ jobs:
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/SHA256SUMS
 
-      - name: Upload 5.10 Stage 3 artifacts
+      - name: Upload 5.10 Stage 5 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage4-Cepheus-DTB-Bringup-KSUN33214
+          name: Mi9-Linux510-Stage5-Cepheus-EarlyBoot-Pair-KSUN33214
           path: dist/
           if-no-files-found: error
