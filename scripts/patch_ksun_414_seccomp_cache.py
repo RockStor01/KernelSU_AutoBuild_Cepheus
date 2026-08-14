@@ -45,8 +45,15 @@ if missing:
 p.write_text(s)
 print(f"Patched {p}")
 
-# Chain SELinux credential compatibility patch for Linux 4.14.
+# Chain SELinux credential/policy compatibility patch for Linux 4.14.
 selinux_helper = Path(__file__).with_name("patch_ksun_414_selinux_cred.py")
 if not selinux_helper.is_file():
     raise SystemExit(f"SELinux cred helper not found: {selinux_helper}")
 subprocess.run([sys.executable, str(selinux_helper), str(kernel_root)], check=True)
+
+# KernelSU-Next SELinux-hide depends on the modern replaceable
+# struct selinux_policy layout.  Use a safe no-op implementation on 4.14.
+selinux_hide_helper = Path(__file__).with_name("patch_ksun_414_selinux_hide.py")
+if not selinux_hide_helper.is_file():
+    raise SystemExit(f"SELinux hide helper not found: {selinux_hide_helper}")
+subprocess.run([sys.executable, str(selinux_hide_helper), str(kernel_root)], check=True)
