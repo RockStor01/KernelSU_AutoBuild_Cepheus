@@ -140,10 +140,47 @@ jobs:
           dtc -I dtb -O dts -o port-report/native510/sm8150-5.10-base.dts "$BASE_DTB"
           grep -nE 'model[[:space:]]*=|compatible[[:space:]]*=' port-report/native510/sm8150-5.10-base.dts | head -n 80 > port-report/native510/identity.txt || true
 
+      - name: Stage 4 - compile upstream Xiaomi Mi 9 device tree baseline
+        run: |
+          set -u
+          mkdir -p port-report/stage4
+          CEPHEUS_PATCH_URL='https://lore.kernel.org/all/20220107025910.112425-1-alexeymin@postmarketos.org/raw'
+          curl --fail --location --retry 3 "${CEPHEUS_PATCH_URL}" -o /tmp/cepheus-dts.patch
+          grep -q 'sm8150-xiaomi-cepheus.dts' /tmp/cepheus-dts.patch
+
+          cd kernel510
+          git apply --include='arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts' /tmp/cepheus-dts.patch
+          test -s arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts
+
+          if ! grep -q 'sm8150-xiaomi-cepheus.dtb' arch/arm64/boot/dts/qcom/Makefile; then
+            printf '\ndtb-$(CONFIG_ARCH_QCOM) += sm8150-xiaomi-cepheus.dtb\n' >> arch/arm64/boot/dts/qcom/Makefile
+          fi
+
+          set +e
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1             arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dtb             2>&1 | tee ../port-report/stage4/cepheus-dtb-build.log
+          DTB_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          {
+            echo "Stage 4 upstream cepheus DT baseline"
+            echo "Source: ${CEPHEUS_PATCH_URL}"
+            echo "Build status: ${DTB_STATUS}"
+            echo "Safety: experimental analysis artifact; do not flash"
+          } > ../port-report/stage4/STATUS.txt
+
+          if [ "${DTB_STATUS}" -eq 0 ]; then
+            test -s out/arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dtb
+            cp out/arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dtb ../port-report/stage4/
+            sha256sum ../port-report/stage4/sm8150-xiaomi-cepheus.dtb               > ../port-report/stage4/sm8150-xiaomi-cepheus.dtb.sha256
+            echo "compile_result=success" >> ../port-report/stage4/STATUS.txt
+          else
+            echo "compile_result=needs_backport_fixes" >> ../port-report/stage4/STATUS.txt
+          fi
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 3
+          Linux 5.10 cepheus bring-up - Stage 4
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -156,7 +193,7 @@ jobs:
           5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
           6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
 
-          cepheus-5.10-stage3-analysis.txt contains the donor-side candidates used for the next patch.
+          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
@@ -178,6 +215,6 @@ jobs:
       - name: Upload 5.10 Stage 3 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage3-Cepheus-DT-Analysis-KSUN33214
+          name: Mi9-Linux510-Stage4-Cepheus-DTB-Bringup-KSUN33214
           path: dist/
           if-no-files-found: error
