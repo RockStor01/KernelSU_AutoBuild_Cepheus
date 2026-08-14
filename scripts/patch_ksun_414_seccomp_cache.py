@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import subprocess
 import sys
 
 kernel_root = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
@@ -43,3 +44,9 @@ if missing:
 
 p.write_text(s)
 print(f"Patched {p}")
+
+# Chain SELinux credential compatibility patch for Linux 4.14.
+selinux_helper = Path(__file__).with_name("patch_ksun_414_selinux_cred.py")
+if not selinux_helper.is_file():
+    raise SystemExit(f"SELinux cred helper not found: {selinux_helper}")
+subprocess.run([sys.executable, str(selinux_helper), str(kernel_root)], check=True)
