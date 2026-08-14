@@ -344,10 +344,68 @@ jobs:
           sha256sum port-report/stage8/*.txt > port-report/stage8/SHA256SUMS
           cat port-report/stage8/STATUS.txt
 
+      - name: Stage 9 - enable cepheus UFS controller and PHY
+        run: |
+          set -euxo pipefail
+          BOARD=kernel510/arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts
+          test -s "$BOARD"
+          mkdir -p port-report/stage9
+
+          cat >> "$BOARD" <<'EOF'
+
+          /*
+           * Cepheus UFS rails mapped from the 4.14 donor:
+           * pm8150_l10 -> vreg_l10a_2p5, pm8150_s4 -> vreg_s4a_1p8,
+           * pm8150_l5 -> vreg_l5a_0p875, pm8150l_l3 -> vreg_l3c_1p2.
+           */
+          &ufs_mem_hc {
+              vcc-supply = <&vreg_l10a_2p5>;
+              vccq2-supply = <&vreg_s4a_1p8>;
+              status = "okay";
+          };
+
+          &ufs_mem_phy {
+              vdda-phy-supply = <&vreg_l5a_0p875>;
+              vdda-pll-supply = <&vreg_l3c_1p2>;
+              status = "okay";
+          };
+          EOF
+
+          grep -n -A18 '&ufs_mem_hc' "$BOARD" > port-report/stage9/ufs-board-overrides.txt
+          grep -n -A18 '&ufs_mem_phy' "$BOARD" >> port-report/stage9/ufs-board-overrides.txt
+          grep -q 'vcc-supply = <&vreg_l10a_2p5>' "$BOARD"
+          grep -q 'vccq2-supply = <&vreg_s4a_1p8>' "$BOARD"
+          grep -q 'vdda-phy-supply = <&vreg_l5a_0p875>' "$BOARD"
+          grep -q 'vdda-pll-supply = <&vreg_l3c_1p2>' "$BOARD"
+
+          make -C kernel510 O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            qcom/sm8150-xiaomi-cepheus.dtb \
+            2>&1 | tee port-report/stage9/cepheus-ufs-dtb-build.log
+          DTB=kernel510/out/arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dtb
+          test -s "$DTB"
+          dtc -I dtb -O dts -o port-report/stage9/sm8150-xiaomi-cepheus-ufs.dts "$DTB"
+          grep -nEi -B12 -A55 'ufshc@1d84000|phy@1d87000' \
+            port-report/stage9/sm8150-xiaomi-cepheus-ufs.dts \
+            > port-report/stage9/compiled-ufs-context.txt
+          grep -q 'status = "okay"' port-report/stage9/compiled-ufs-context.txt
+          cp "$DTB" port-report/stage9/sm8150-xiaomi-cepheus-ufs.dtb
+
+          {
+            echo "Linux 5.10 cepheus Stage 9 UFS enablement"
+            echo "real_cepheus_dtb=verified"
+            echo "ufs_controller=enabled"
+            echo "ufs_phy=enabled"
+            echo "supply_mapping=from_cepheus_4.14_donor"
+            echo "flashable=no"
+            echo "next=validate display and touch dependencies before boot packaging"
+          } > port-report/stage9/STATUS.txt
+          (cd port-report/stage9 && sha256sum *.dtb *.txt > SHA256SUMS)
+          cat port-report/stage9/STATUS.txt
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 8
+          Linux 5.10 cepheus bring-up - Stage 9
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -360,7 +418,7 @@ jobs:
           5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
           6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
 
-          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.
+          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
@@ -382,6 +440,6 @@ jobs:
       - name: Upload 5.10 Stage 5 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage8-Cepheus-UFS-USB-Dependency-Audit-KSUN33214
+          name: Mi9-Linux510-Stage9-Cepheus-UFS-Enablement-KSUN33214
           path: dist/
           if-no-files-found: error
