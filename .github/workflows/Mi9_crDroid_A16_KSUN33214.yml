@@ -195,24 +195,17 @@ jobs:
               s = s.replace("hlist_for_each_entry", "list_for_each_entry")
               s = s.replace("hlist_entry(", "list_entry(")
               s = s.replace("if (head->first)", "if (head->next != head)")
-              old_ins = """                    selected_entry = &hook->list;
-                    hook->list.head = head;
-                    hook->list.list.next = NULL;
-                    hook->list.list.pprev = &head->first;
-                    hook->list.lsm = \"ksu\";"""
-              new_ins = """                    selected_entry = &hook->list;
-                    hook->list.head = head;
-                    list_add(&hook->list.list, head);
-                    hook->list.lsm = \"ksu\"; /* ksu_lsm_414_compat */"""
-              if old_ins in s:
-                  s = s.replace(old_ins, new_ins)
-                  changed = True
+              # 用正则替换 hlist 节点初始化（不依赖精确缩进）
+              s = re.sub(r"hook->list\.list\.next\s*=\s*NULL;\s*\n\s*hook->list\.list\.pprev\s*=\s*&head->first;",
+                         "list_add(&hook->list.list, head) /* ksu_lsm_414_compat */", s)
               s = s.replace("&head->first", "&head->next")
               s = s.replace("head->first", "head->next")
+              s = s.replace("->pprev", "->prev")
               if "list_for_each_entry" in s or "struct list_head *head" in s:
                   changed = True
               return s if changed else None
           apply_patch("KernelSU-Next/kernel/hook/lsm_hook.c", "4.14 list_head compat", patch_lsm)
+
 
           print("=== Compatibility patch done ===")
           PY
