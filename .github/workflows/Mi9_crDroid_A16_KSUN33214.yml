@@ -76,23 +76,17 @@ jobs:
               except Exception as e:
                   print(f"  [WARN]  {filepath}: {desc} failed: {e}")
 
-          # 1. DTC Makefile: 彻底禁用 YAML（4.14 构建系统忽略 HOSTLDLIBS_dtc）
+          # 1. DTC Makefile: 4.14 用 HOSTLOADLIBES 而非 HOSTLDLIBS
           def patch_dtc(s):
-              if '-DNO_YAML' in s and 'yamltree.o' not in s:
+              if 'HOSTLOADLIBES_dtc' in s:
                   return None
-              # 找到 ifeq yaml 块并整体替换为 -DNO_YAML
-              pattern = r'ifeq \(\$\(shell pkg-config --exists yaml-0\.1.*?\)\).*?endif\n'
-              match = re.search(pattern, s, re.DOTALL)
-              if match:
-                  s = s[:match.start()] + 'HOST_EXTRACFLAGS += -DNO_YAML\n' + s[match.end():]
+              # 在 HOSTLDLIBS_dtc 行后面添加 HOSTLOADLIBES_dtc 别名
+              if 'HOSTLDLIBS_dtc' in s:
+                  s = s.replace('HOSTLDLIBS_dtc\t:= $(shell pkg-config yaml-0.1 --libs)',
+                                'HOSTLDLIBS_dtc\t:= $(shell pkg-config yaml-0.1 --libs)\nHOSTLOADLIBES_dtc := $(HOSTLDLIBS_dtc)')
                   return s
-              # fallback: 手动移除 yamltree.o 和 yaml libs
-              s = re.sub(r'dtc-objs\s*\+=\s*yamltree\.o\s*\n', '', s)
-              s = re.sub(r'HOSTLDLIBS_dtc[^\n]*\n', '', s)
-              if '-DNO_YAML' not in s:
-                  s += '\nHOST_EXTRACFLAGS += -DNO_YAML\n'
-              return s
-          apply_patch('scripts/dtc/Makefile', 'disable YAML (4.14 compat)', patch_dtc)
+              return None
+          apply_patch('scripts/dtc/Makefile', 'HOSTLOADLIBES_dtc 4.14 compat', patch_dtc)', patch_dtc)
 
           # 2. Makefile.lib: mkdtimg python2 -> python3
           def patch_mkdtimg(s):
