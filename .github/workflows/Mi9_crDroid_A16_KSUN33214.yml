@@ -76,17 +76,13 @@ jobs:
               except Exception as e:
                   print(f"  [WARN]  {filepath}: {desc} failed: {e}")
 
-          # 1. DTC Makefile: 4.14 用 HOSTLOADLIBES 而非 HOSTLDLIBS
+          # 1. DTC Makefile: 4.14 内核构建用 HOSTLOADLIBES 传递链接库
           def patch_dtc(s):
               if 'HOSTLOADLIBES_dtc' in s:
                   return None
-              # 在 HOSTLDLIBS_dtc 行后面添加 HOSTLOADLIBES_dtc 别名
-              if 'HOSTLDLIBS_dtc' in s:
-                  s = s.replace('HOSTLDLIBS_dtc\t:= $(shell pkg-config yaml-0.1 --libs)',
-                                'HOSTLDLIBS_dtc\t:= $(shell pkg-config yaml-0.1 --libs)\nHOSTLOADLIBES_dtc := $(HOSTLDLIBS_dtc)')
-                  return s
-              return None
-          apply_patch('scripts/dtc/Makefile', 'HOSTLOADLIBES_dtc 4.14 compat', patch_dtc)', patch_dtc)
+              # 直接在末尾添加，不依赖原有行格式
+              return s + '\n# 4.14 compat: HOSTLDLIBS_dtc is ignored, use HOSTLOADLIBES_dtc\nHOSTLOADLIBES_dtc := -lyaml\n'
+          apply_patch('scripts/dtc/Makefile', 'HOSTLOADLIBES_dtc 4.14', patch_dtc)', patch_dtc)
 
           # 2. Makefile.lib: mkdtimg python2 -> python3
           def patch_mkdtimg(s):
