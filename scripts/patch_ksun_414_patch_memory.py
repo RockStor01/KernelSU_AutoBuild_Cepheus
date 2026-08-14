@@ -51,8 +51,9 @@ if missing:
 p.write_text(s)
 print(f"Patched {p}")
 
-# Chain Linux 4.14 file_wrapper compatibility patch
 import subprocess
+
+# Chain Linux 4.14 file_wrapper compatibility patch
 file_wrapper_helper = Path(__file__).with_name("patch_ksun_414_file_wrapper.py")
 if not file_wrapper_helper.is_file():
     raise SystemExit(f"file_wrapper helper not found: {file_wrapper_helper}")
@@ -63,3 +64,9 @@ seccomp_cache_helper = Path(__file__).with_name("patch_ksun_414_seccomp_cache.py
 if not seccomp_cache_helper.is_file():
     raise SystemExit(f"seccomp_cache helper not found: {seccomp_cache_helper}")
 subprocess.run([sys.executable, str(seccomp_cache_helper), str(kernel_root)], check=True)
+
+# Chain the pinned KernelSU-Next legacy SELinux policy implementation for 4.14.
+sepolicy_helper = Path(__file__).with_name("patch_ksun_414_sepolicy.py")
+if not sepolicy_helper.is_file():
+    raise SystemExit(f"sepolicy helper not found: {sepolicy_helper}")
+subprocess.run([sys.executable, str(sepolicy_helper), str(kernel_root)], check=True)
