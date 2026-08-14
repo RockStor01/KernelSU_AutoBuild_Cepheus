@@ -170,7 +170,7 @@ jobs:
           fi
 
           set +e
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1             arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dtb             2>&1 | tee ../port-report/stage4/cepheus-dtb-build.log
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1             qcom/sm8150-xiaomi-cepheus.dtb             2>&1 | tee ../port-report/stage4/cepheus-dtb-build.log
           DTB_STATUS=${PIPESTATUS[0]}
           set -e
 
