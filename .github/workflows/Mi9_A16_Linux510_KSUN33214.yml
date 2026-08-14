@@ -297,18 +297,22 @@ jobs:
           test -s "$DTS"
           test -s "$DONOR"
           mkdir -p port-report/stage7
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+          grep -nEi -B16 -A40 'ufs|ufshc|usb|dwc3|hsphy|qmpphy|typec' "$DTS" > port-report/stage7/compiled-510-node-map.txt
+          grep -nEi -B16 -A40 'ufs|ufshc|usb|dwc3|hsphy|qmpphy|typec' "$DONOR" > port-report/stage7/donor414-node-map.txt || true
+          test -s port-report/stage7/compiled-510-node-map.txt
+          {
+            echo "Linux 5.10 cepheus Stage 7 UFS/USB mapping"
+            echo "real_cepheus_dtb=verified"
+            echo "compiled510_matches=$(grep -cEi 'ufs|ufshc|usb|dwc3|hsphy|qmpphy|typec' "$DTS")"
+            echo "donor414_matches=$(grep -cEi 'ufs|ufshc|usb|dwc3|hsphy|qmpphy|typec' "$DONOR" || true)"
+            echo "flashable=no"
+            echo "next=review exact status, supplies and PHY links before board changes"
+          } > port-report/stage7/STATUS.txt
+          cat port-report/stage7/STATUS.txt
+          sha256sum port-report/stage7/*.txt > port-report/stage7/SHA256SUMS
 
-          src = Path('port-report/stage5/sm8150-xiaomi-cepheus.validated.dts').read_text()
-          out = []
-          stack = []
-          block_start = []
-          lines = src.splitlines()
-          for number, line in enumerate(lines, 1):
-              stripped = line.strip()
-              match = re.match(r'([^/][^{};]*)\s*\{\s*        run: |
+      - name: Stage 3 - generate migration plan
+        run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
           Linux 5.10 cepheus bring-up - Stage 7
 
@@ -323,88 +327,7 @@ jobs:
           5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
           6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
 
-          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB paths against the 4.14 cepheus donor.
-          native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
-          EOF
-
-      - name: Package Stage 5 artifacts
-        run: |
-          set -euxo pipefail
-          rm -rf dist
-          mkdir -p dist/dtbs
-          cp kernel510/out/arch/arm64/boot/Image dist/Image-linux-5.10-gki-ksun33214
-          cp kernel510/out/.config dist/config-linux-5.10-gki-ksun33214
-          cp -a port-report/. dist/
-          find kernel510/out/arch/arm64/boot/dts/qcom -type f -name 'sm8150*.dtb' -exec cp -v {} dist/dtbs/ \;
-          test -s dist/Image-linux-5.10-gki-ksun33214
-          test -s dist/cepheus-5.10-stage3-analysis.txt
-          test "$(find dist/dtbs -type f -name '*.dtb' | wc -l)" -gt 0
-          (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
-          cat dist/SHA256SUMS
-
-      - name: Upload 5.10 Stage 5 artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mi9-Linux510-Stage7-Cepheus-UFS-USB-Mapping-KSUN33214
-          path: dist/
-          if-no-files-found: error
-, stripped)
-              if match:
-                  name = match.group(1).strip()
-                  stack.append(name)
-                  block_start.append(number)
-              if stack and re.search(r'ufs|ufshc|usb|dwc3|hsphy|qmpphy|typec', stripped, re.I):
-                  begin = block_start[-1]
-                  end = min(len(lines), number + 14)
-                  path = '/' + '/'.join(stack)
-                  excerpt = '\n'.join(f'{i+1}:{lines[i]}' for i in range(begin-1, end))
-                  out.append(f'PATH {path}\nMATCH {number}:{stripped}\n{excerpt}\n')
-              closes = stripped.count('};')
-              for _ in range(closes):
-                  if stack:
-                      stack.pop()
-                      block_start.pop()
-          unique = []
-          seen = set()
-          for item in out:
-              key = item.splitlines()[0]
-              if key not in seen:
-                  seen.add(key)
-                  unique.append(item)
-          Path('port-report/stage7/compiled-510-node-map.txt').write_text('\n'.join(unique))
-          if not unique:
-              raise SystemExit('No UFS/USB nodes found in compiled cepheus DTB')
-          PY
-          grep -nEi -B12 -A35 'ufs|ufshc|usb|dwc3|hsphy|qmpphy|typec' "$DONOR"             > port-report/stage7/donor414-node-map.txt || true
-          test -s port-report/stage7/compiled-510-node-map.txt
-          {
-            echo "Linux 5.10 cepheus Stage 7 UFS/USB mapping"
-            echo "real_cepheus_dtb=verified"
-            echo "compiled_node_map=generated"
-            echo "donor414_map=$(test -s port-report/stage7/donor414-node-map.txt && echo generated || echo no_matches)"
-            echo "flashable=no"
-            echo "next=review exact status, supplies and PHY links before applying board changes"
-          } > port-report/stage7/STATUS.txt
-          cat port-report/stage7/STATUS.txt
-          sha256sum port-report/stage7/*.txt > port-report/stage7/SHA256SUMS
-
-      - name: Stage 3 - generate migration plan
-        run: |
-          cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 6
-
-          This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
-          A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
-
-          Next porting order:
-          1. Start from the native Linux 5.10 SM8150 SoC description.
-          2. Port cepheus regulators/GPIO/pinctrl and reserved-memory references.
-          3. Port storage/USB/Type-C and basic power/charger nodes needed for boot.
-          4. Port display/touch.
-          5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
-          6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
-
-          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.
+          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
