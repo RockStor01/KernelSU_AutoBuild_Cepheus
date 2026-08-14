@@ -12,7 +12,7 @@ permissions:
 jobs:
   linux510-baseline:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     env:
       COMMON_REPO: https://android.googlesource.com/kernel/common
@@ -32,6 +32,15 @@ jobs:
             bc bison build-essential ccache curl flex git \
             libelf-dev libssl-dev libncurses-dev python3 rsync unzip zip \
             clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Add swap for kernel link stage
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
       - name: Clone Android 5.10 common baseline
         run: |
@@ -65,15 +74,19 @@ jobs:
           ./scripts/config --file out/.config --enable OVERLAY_FS
           ./scripts/config --file out/.config --enable DEVTMPFS
           ./scripts/config --file out/.config --enable TMPFS
+          ./scripts/config --file out/.config --disable LTO_CLANG_FULL || true
+          ./scripts/config --file out/.config --disable LTO_CLANG_THIN || true
+          ./scripts/config --file out/.config --disable LTO_CLANG || true
+          ./scripts/config --file out/.config --enable LTO_NONE || true
           make O=out ARCH=arm64 LLVM=1 olddefconfig
-          grep -E 'CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_OVERLAY_FS=' out/.config || true
+          grep -E 'CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_OVERLAY_FS=|CONFIG_LTO' out/.config || true
 
       - name: Build Linux 5.10 baseline Image
         working-directory: kernel510
         run: |
           export ARCH=arm64
           export LLVM=1
-          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 Image
+          make -j2 O=out ARCH=arm64 LLVM=1 Image
           test -s out/arch/arm64/boot/Image
           file out/arch/arm64/boot/Image
 
