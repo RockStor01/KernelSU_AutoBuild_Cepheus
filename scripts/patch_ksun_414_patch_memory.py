@@ -53,18 +53,43 @@ print(f"Patched {p}")
 
 # Linux 4.14 has min/max helpers through linux/kernel.h but does not provide
 # the newer standalone linux/minmax.h header used by KSUN v3.3.0 sulog.
+# It also predates ktime_get_boottime_ts64() and strncpy_from_user_nofault().
 sulog_event = kernel_root / "KernelSU-Next/kernel/sulog/event.c"
 if not sulog_event.is_file():
     raise SystemExit(f"sulog event.c not found: {sulog_event}")
 event_src = sulog_event.read_text()
 if '#include <linux/minmax.h>\n' in event_src:
     event_src = event_src.replace('#include <linux/minmax.h>\n', '#include <linux/kernel.h>\n', 1)
+
+compat_marker = '#include <linux/version.h>\n'
+compat_block = (
+    '#include <linux/version.h>\n'
+    '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)\n'
+    '#ifndef ktime_get_boottime_ts64\n'
+    '#define ktime_get_boottime_ts64(ts) (*(ts) = ktime_to_timespec64(ktime_get_boottime()))\n'
+    '#endif\n'
+    '#ifndef strncpy_from_user_nofault\n'
+    '#define strncpy_from_user_nofault(dst, src, count) strncpy_from_user((dst), (src), (count))\n'
+    '#endif\n'
+    '#endif\n'
+)
+if 'KERNEL_VERSION(5, 0, 0)' not in event_src or 'ktime_get_boottime_ts64(ts)' not in event_src:
+    if compat_marker not in event_src:
+        raise SystemExit("sulog linux/version.h marker missing")
+    event_src = event_src.replace(compat_marker, compat_block, 1)
+
+checks = (
+    '#include <linux/kernel.h>',
+    '#define ktime_get_boottime_ts64(ts)',
+    '#define strncpy_from_user_nofault(dst, src, count)',
+)
+missing = [check for check in checks if check not in event_src]
+if missing:
+    raise SystemExit("sulog Linux 4.14 compatibility patch failed: " + ", ".join(missing))
 if '#include <linux/minmax.h>' in event_src:
     raise SystemExit("sulog minmax compatibility patch failed")
-if '#include <linux/kernel.h>' not in event_src:
-    raise SystemExit("sulog legacy kernel.h include missing")
 sulog_event.write_text(event_src)
-print(f"Patched {sulog_event} for Linux 4.14 min/max compatibility")
+print(f"Patched {sulog_event} for Linux 4.14 SULog compatibility")
 
 import subprocess
 
