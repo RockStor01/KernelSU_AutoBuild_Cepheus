@@ -161,10 +161,13 @@ jobs:
           cp kernel510/out/.config dist/config-linux-5.10-gki-ksun33214
           cp port-report/cepheus-5.10-inventory.txt dist/
           cp port-report/cepheus-5.10-stage2-dt.txt dist/
-          while read -r f; do
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
             [ -s "$f" ] && cp "$f" dist/dtbs/
           done < /tmp/sm8150-dtbs.txt
-          sha256sum dist/Image-* dist/config-* dist/*.txt dist/dtbs/* > dist/SHA256SUMS
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
+          test -s dist/Image-linux-5.10-gki-ksun33214
+          test -n "$(find dist/dtbs -type f -name '*.dtb' -print -quit)"
 
       - name: Upload 5.10 Stage 2 artifacts
         uses: actions/upload-artifact@v4
