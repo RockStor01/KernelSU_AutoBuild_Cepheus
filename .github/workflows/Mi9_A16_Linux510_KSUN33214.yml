@@ -502,10 +502,62 @@ jobs:
           cat port-report/stage11/STATUS.txt
           sed -n '1,160p' port-report/stage11/donor-compatible-lines.txt
 
+      - name: Stage 12 - validate ST FTS touch port prerequisites
+        run: |
+          set -euxo pipefail
+          DONOR=donor414/arch/arm64/boot/dts/qcom/cepheus-sm8150.dtsi
+          DONOR_DTS=donor414/arch/arm64/boot/dts/qcom
+          K510=kernel510
+          BOARD=$K510/arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts
+          mkdir -p port-report/stage12
+          test -s "$DONOR"
+          test -s "$BOARD"
+
+          grep -n -B8 -A45 'compatible = "st,fts"' "$DONOR" \
+            > port-report/stage12/donor-st-fts-node.txt
+          grep -RniE -B10 -A35 '(^|[[:space:]])(ts_active|ts_int_suspend|ts_reset_suspend)(:|[[:space:]])' "$DONOR_DTS" \
+            > port-report/stage12/donor-st-fts-pinctrl.txt || true
+          grep -RniE 'compatible[[:space:]]*=[[:space:]]*"st,fts"|st,fts|CONFIG_TOUCHSCREEN.*FTS|TOUCHSCREEN_FTS' \
+            "$K510/drivers/input/touchscreen" "$K510/Documentation/devicetree/bindings/input" "$K510/drivers/input/touchscreen/Kconfig" \
+            > port-report/stage12/kernel510-st-fts-driver.txt || true
+          grep -RniE 'qupv3_se17_i2c|i2c@.*(a|b|c|d|e|f)?[0-9a-f]+' \
+            "$K510/arch/arm64/boot/dts/qcom/sm8150.dtsi" "$BOARD" \
+            > port-report/stage12/kernel510-i2c17-map.txt || true
+          grep -nE 'vreg_l1c_1p8|vreg_l1c|regulator-name.*l1' "$BOARD" \
+            > port-report/stage12/kernel510-touch-supply-map.txt || true
+
+          DRIVER_MATCHES=$(wc -l < port-report/stage12/kernel510-st-fts-driver.txt)
+          I2C_MATCHES=$(wc -l < port-report/stage12/kernel510-i2c17-map.txt)
+          PINCTRL_MATCHES=$(wc -l < port-report/stage12/donor-st-fts-pinctrl.txt)
+          SUPPLY_MATCHES=$(wc -l < port-report/stage12/kernel510-touch-supply-map.txt)
+          {
+            echo "Linux 5.10 cepheus Stage 12 ST FTS touch prerequisites"
+            echo "touch_compatible=st,fts"
+            echo "i2c_address=0x49"
+            echo "irq_gpio=122"
+            echo "reset_gpio=12"
+            echo "resolution=1080x2340"
+            echo "kernel510_driver_matches=$DRIVER_MATCHES"
+            echo "kernel510_i2c17_matches=$I2C_MATCHES"
+            echo "donor_pinctrl_matches=$PINCTRL_MATCHES"
+            echo "kernel510_supply_matches=$SUPPLY_MATCHES"
+            echo "flashable=no"
+            if [ "$DRIVER_MATCHES" -eq 0 ]; then
+              echo "touch_port=blocked_missing_st_fts_driver"
+            elif [ "$I2C_MATCHES" -eq 0 ] || [ "$PINCTRL_MATCHES" -eq 0 ] || [ "$SUPPLY_MATCHES" -eq 0 ]; then
+              echo "touch_port=blocked_missing_dt_dependency"
+            else
+              echo "touch_port=ready_for_controlled_dts_port"
+            fi
+            echo "next=backport exact driver if absent, otherwise add only verified node and pins"
+          } > port-report/stage12/STATUS.txt
+          sha256sum port-report/stage12/*.txt > port-report/stage12/SHA256SUMS
+          cat port-report/stage12/STATUS.txt
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 11
+          Linux 5.10 cepheus bring-up - Stage 12
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -518,7 +570,7 @@ jobs:
           5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
           6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
 
-          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.\n          stage10/ audits simple-framebuffer, native panel/DSI and touchscreen dependencies without claiming hardware support.\n          stage11/ identifies exact donor compatible strings and checks matching 5.10 panel/touch drivers before porting nodes.
+          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.\n          stage10/ audits simple-framebuffer, native panel/DSI and touchscreen dependencies without claiming hardware support.\n          stage11/ identifies exact donor compatible strings and checks matching 5.10 panel/touch drivers before porting nodes.\n          stage12/ validates the exact st,fts touch driver, I2C17, GPIO pinctrl and regulator prerequisites.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
@@ -540,6 +592,6 @@ jobs:
       - name: Upload 5.10 Stage 5 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage11-Cepheus-Panel-Touch-Driver-Candidates-KSUN33214
+          name: Mi9-Linux510-Stage12-Cepheus-ST-FTS-Touch-Prerequisites-KSUN33214
           path: dist/
           if-no-files-found: error
