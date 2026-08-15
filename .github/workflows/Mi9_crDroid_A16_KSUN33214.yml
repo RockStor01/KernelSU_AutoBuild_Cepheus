@@ -1,4 +1,4 @@
-name: Mi9 crDroid A16 - Linux 4.14.355 + KSUN 33214
+name: Mi9 crDroid A16 - Linux 4.14.355 + KSUN Legacy v3.2.0 Reference
 
 on:
   workflow_dispatch:
@@ -18,8 +18,8 @@ jobs:
       KERNEL_REPO: https://github.com/crdroidandroid/android_kernel_xiaomi_cepheus.git
       KERNEL_BRANCH: "16.0"
       DEFCONFIG: cepheus_defconfig
-      KSUN_TAG: v3.3.0
-      ZIP_NAME: InfiniR-cepheus-4.14.355-A16-KSUN-v3.3.0-33214-DIAGNOSTIC-NOWRITE.zip
+      KSUN_TAG: v3.2.0
+      ZIP_NAME: InfiniR-cepheus-4.14.355-A16-KSUN-Legacy-v3.2.0-REFERENCE-NOWRITE.zip
 
     steps:
       - name: Checkout builder repo
@@ -46,7 +46,7 @@ jobs:
           echo "Kernel version from Makefile:"
           make kernelversion
 
-      - name: Integrate KernelSU-Next v3.3.0
+      - name: Integrate known-good-family KernelSU-Next Legacy v3.2.0
         working-directory: kernel
         run: |
           rm -rf KernelSU KernelSU-Next
@@ -403,7 +403,7 @@ jobs:
             echo "ROM target: crDroid 12.11 / Android 16"
             echo "Kernel source: ${KERNEL_REPO} branch ${KERNEL_BRANCH}"
             echo "Kernel version: $(make kernelversion)"
-            echo "KernelSU-Next target: ${KSUN_TAG} / manager build 33214"
+            echo "KernelSU-Next target: ${KSUN_TAG} / known-good InfiniR v2.02 family reference"
             echo "Diagnostic safety: syscall target addresses are logged; writes are disabled"
             echo "Expected result: boots for log capture; KernelSU manager remains unavailable"
             echo
@@ -414,7 +414,7 @@ jobs:
       - name: Upload flashable package
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-cepheus-4.14.355-KSUN-33214-DIAGNOSTIC-NOWRITE
+          name: Mi9-cepheus-4.14.355-KSUN-Legacy-v3.2.0-REFERENCE-NOWRITE
           path: |
             kernel/${{ env.ZIP_NAME }}
             kernel/${{ env.ZIP_NAME }}.sha256
