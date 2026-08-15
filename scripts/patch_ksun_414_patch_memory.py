@@ -11,23 +11,22 @@ s = p.read_text()
 marker = '#include "asm-generic/fixmap.h"\n'
 if "KSU_LEGACY_414_PATCH_MEMORY_COMPAT" not in s:
     if marker not in s: raise SystemExit("Expected fixmap include not found")
-    s = s.replace(marker, marker + '#include <linux/version.h>\n#include <asm/memory.h>\n#define KSU_LEGACY_414_PATCH_MEMORY_COMPAT 1\n#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)\n#ifndef __pte_to_phys\n#define __pte_to_phys(pte) ((phys_addr_t)pte_pfn(pte) << PAGE_SHIFT)\n#endif\n#ifndef __pmd_to_phys\n#define __pmd_to_phys(pmd) ((phys_addr_t)pmd_pfn(pmd) << PAGE_SHIFT)\n#endif\n#ifndef pmd_leaf\n#define pmd_leaf(pmd) pmd_sect(pmd)\n#endif\n#ifndef copy_to_kernel_nofault\n#define copy_to_kernel_nofault(dst, src, len) probe_kernel_write((dst), (src), (len))\n#endif\n#endif\n', 1)
+    s = s.replace(marker, marker + '#include <linux/version.h>\n#define KSU_LEGACY_414_PATCH_MEMORY_COMPAT 1\n#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)\n#ifndef __pte_to_phys\n#define __pte_to_phys(pte) ((phys_addr_t)pte_pfn(pte) << PAGE_SHIFT)\n#endif\n#ifndef __pmd_to_phys\n#define __pmd_to_phys(pmd) ((phys_addr_t)pmd_pfn(pmd) << PAGE_SHIFT)\n#endif\n#ifndef pmd_leaf\n#define pmd_leaf(pmd) pmd_sect(pmd)\n#endif\n#ifndef copy_to_kernel_nofault\n#define copy_to_kernel_nofault(dst, src, len) probe_kernel_write((dst), (src), (len))\n#endif\n#endif\n', 1)
 s = s.replace('#define ksu_flush_icache(start, end) __flush_icache_range\n', '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)\n#define ksu_flush_icache(start, end) flush_icache_range((start), (end))\n#else\n#define ksu_flush_icache(start, end) __flush_icache_range\n#endif\n', 1)
 # The PMD mapping is now understood, but the first live write caused a
-# device boot loop. Keep the address translation active and compare the page-table-walk physical address with __pa_symbol() and stop
-# before all writes. Both syscall 63 and dispatcher-slot writes caused bootloop.
+# device boot loop. Keep the address translation active and stop immediately
+# before fixmap writes so the device can capture deterministic diagnostics.
 needle = '    void *map = set_fixmap_offset(FIX_TEXT_POKE0, phy);\n'
 replacement = (
-    '    unsigned long native_phy = __pa_symbol(p);\n'
-    '    pr_err("KSU 4.14 phy crosscheck no-write: dst=0x%lx walk_phy=0x%lx native_phy=0x%lx len=%zu flags=%d\\n",\n'
-    '           p, phy, native_phy, len, flags);\n'
+    '    pr_err("KSU 4.14 diagnostic no-write: dst=0x%lx phy=0x%lx len=%zu flags=%d\\n",\n'
+    '           p, phy, len, flags);\n'
     '    return -EOPNOTSUPP;\n'
     '    void *map = set_fixmap_offset(FIX_TEXT_POKE0, phy);\n'
 )
 if needle not in s:
     raise SystemExit('Expected fixmap write marker not found')
 s = s.replace(needle, replacement, 1)
-if 'KSU 4.14 phy crosscheck no-write' not in s:
+if 'KSU 4.14 diagnostic no-write' not in s:
     raise SystemExit('Diagnostic no-write guard insertion failed')
 p.write_text(s)
 
@@ -42,21 +41,6 @@ event.write_text(e)
 for rel in ("KernelSU-Next/kernel/infra/event_queue.h","KernelSU-Next/kernel/infra/event_queue.c","KernelSU-Next/kernel/sulog/fd.c"):
     q = kernel_root / rel
     q.write_text(q.read_text().replace('__poll_t', 'unsigned int'))
-
-# Linux 4.14 exports the legacy sys_ni_syscall symbol name. Patch the
-# ARM64 syscall hook source, not the unrelated supercall dispatcher.
-syscall_arm64 = kernel_root / "KernelSU-Next/kernel/hook/arm64/syscall_hook.c"
-if not syscall_arm64.is_file():
-    raise SystemExit(f"arm64 syscall_hook.c not found: {syscall_arm64}")
-sh = syscall_arm64.read_text()
-if '"__arm64_sys_ni_syscall"' in sh:
-    sh = sh.replace('"__arm64_sys_ni_syscall"', '"sys_ni_syscall"', 1)
-elif '"sys_ni_syscall"' not in sh:
-    raise SystemExit('Neither arm64 nor legacy ni_syscall symbol name found')
-if '"sys_ni_syscall"' not in sh:
-    raise SystemExit('Linux 4.14 ni_syscall symbol selection failed')
-syscall_arm64.write_text(sh)
-print(f"Patched {syscall_arm64} for Linux 4.14 ni_syscall symbol")
 
 # KSUN supercall/dispatch uses scheduler globals whose declarations are not
 # pulled transitively on the 4.14 downstream tree. Include sched/signal.h,
