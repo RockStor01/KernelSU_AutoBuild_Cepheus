@@ -165,8 +165,61 @@ new_apply_setup = '''void apply_kernelsu_rules()
     db = &pol->policydb;
 #endif
 '''
+old_apply_setup_v320 = '''void apply_kernelsu_rules()
+{
+    struct selinux_policy *pol, *old_pol = selinux_state.policy;
+    struct policydb *db;
+
+    if (!getenforce()) {
+        pr_info("SELinux permissive or disabled, apply rules!\\n");
+    }
+
+    mutex_lock(&selinux_state.policy_mutex);
+    pol = ksu_dup_sepolicy(rcu_dereference_protected(
+        old_pol, lockdep_is_held(&selinux_state.policy_mutex)));
+    if (!pol) {
+        pr_err("failed to dup selinux_policy\\n");
+        goto out_unlock;
+    }
+
+    db = &pol->policydb;
+'''
+new_apply_setup_v320 = '''void apply_kernelsu_rules()
+{
+    struct policydb *db;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+    struct selinux_ss *ss = selinux_state.ss;
+#else
+    struct selinux_policy *pol, *old_pol = selinux_state.policy;
+#endif
+
+    if (!getenforce()) {
+        pr_info("SELinux permissive or disabled, apply rules!\\n");
+    }
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+    if (!ss) {
+        pr_err("SELinux 4.14 state has no ss\\n");
+        return;
+    }
+    write_lock(&ss->policy_rwlock);
+    db = &ss->policydb;
+#else
+    mutex_lock(&selinux_state.policy_mutex);
+    pol = ksu_dup_sepolicy(rcu_dereference_protected(
+        old_pol, lockdep_is_held(&selinux_state.policy_mutex)));
+    if (!pol) {
+        pr_err("failed to dup selinux_policy\\n");
+        goto out_unlock;
+    }
+
+    db = &pol->policydb;
+#endif
+'''
 if old_apply_setup in s:
     s = s.replace(old_apply_setup, new_apply_setup, 1)
+elif old_apply_setup_v320 in s:
+    s = s.replace(old_apply_setup_v320, new_apply_setup_v320, 1)
 elif "struct selinux_ss *ss = selinux_state.ss;" not in s:
     raise SystemExit("Expected apply_kernelsu_rules setup block not found")
 
@@ -250,8 +303,41 @@ new_handle_setup = '''#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
     db = &pol->policydb;
 #endif
 '''
+old_handle_setup_v320 = '''    mutex_lock(&selinux_state.policy_mutex);
+
+    old_pol = selinux_state.policy;
+    pol = ksu_dup_sepolicy(rcu_dereference_protected(
+        old_pol, lockdep_is_held(&selinux_state.policy_mutex)));
+    if (!pol) {
+        ret = -ENOMEM;
+        goto out_unlock;
+    }
+    db = &pol->policydb;
+'''
+new_handle_setup_v320 = '''#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+    if (!ss) {
+        ret = -ENODEV;
+        goto out_free;
+    }
+    write_lock(&ss->policy_rwlock);
+    db = &ss->policydb;
+#else
+    mutex_lock(&selinux_state.policy_mutex);
+
+    old_pol = selinux_state.policy;
+    pol = ksu_dup_sepolicy(rcu_dereference_protected(
+        old_pol, lockdep_is_held(&selinux_state.policy_mutex)));
+    if (!pol) {
+        ret = -ENOMEM;
+        goto out_unlock;
+    }
+    db = &pol->policydb;
+#endif
+'''
 if old_handle_setup in s:
     s = s.replace(old_handle_setup, new_handle_setup, 1)
+elif old_handle_setup_v320 in s:
+    s = s.replace(old_handle_setup_v320, new_handle_setup_v320, 1)
 elif "write_lock(&ss->policy_rwlock);" not in s[s.find('int handle_sepolicy'):]:
     raise SystemExit("Expected handle_sepolicy setup block not found")
 
