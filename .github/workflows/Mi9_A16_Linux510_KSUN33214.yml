@@ -598,10 +598,128 @@ jobs:
           sha256sum port-report/stage13/*.txt > port-report/stage13/SHA256SUMS
           cat port-report/stage13/STATUS.txt
 
+      - name: Stage 14 - prove SE17 MMIO identity against native 5.10
+        run: |
+          set -euxo pipefail
+          mkdir -p port-report/stage14
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          donor_root = Path("donor414/arch/arm64/boot/dts/qcom")
+          native_files = [
+              Path("kernel510/arch/arm64/boot/dts/qcom/sm8150.dtsi"),
+              Path("kernel510/arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts"),
+          ]
+
+          declaration = re.compile(
+              r"(?m)^\s*(?P<label>[A-Za-z_][\w-]*)\s*:\s*"
+              r"(?P<node>[A-Za-z0-9_,.+-]+)@(?P<unit>[0-9a-fA-F]+)\s*\{"
+          )
+
+          def block(text, start):
+              opening = text.find("{", start)
+              if opening < 0:
+                  return ""
+              depth = 0
+              for pos in range(opening, len(text)):
+                  if text[pos] == "{":
+                      depth += 1
+                  elif text[pos] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return text[start:pos + 2]
+              return text[start:]
+
+          donor = []
+          for path in donor_root.rglob("*"):
+              if path.suffix not in {".dts", ".dtsi"}:
+                  continue
+              text = path.read_text(errors="replace")
+              for match in declaration.finditer(text):
+                  if match.group("label") != "qupv3_se17_i2c":
+                      continue
+                  body = block(text, match.start())
+                  regs = re.findall(r"(?m)^\s*reg\s*=\s*<([^;]+)>;", body)
+                  donor.append({
+                      "path": str(path),
+                      "label": match.group("label"),
+                      "node": match.group("node"),
+                      "unit_address": match.group("unit").lower(),
+                      "reg": regs[:2],
+                      "source": body,
+                  })
+
+          native = []
+          for path in native_files:
+              text = path.read_text(errors="replace")
+              for match in declaration.finditer(text):
+                  if "i2c" not in match.group("node").lower():
+                      continue
+                  body = block(text, match.start())
+                  regs = re.findall(r"(?m)^\s*reg\s*=\s*<([^;]+)>;", body)
+                  native.append({
+                      "path": str(path),
+                      "label": match.group("label"),
+                      "node": match.group("node"),
+                      "unit_address": match.group("unit").lower(),
+                      "reg": regs[:2],
+                      "source": body,
+                  })
+
+          donor_units = {item["unit_address"] for item in donor}
+          exact = [item for item in native if item["unit_address"] in donor_units]
+          report = {
+              "donor_label": "qupv3_se17_i2c",
+              "donor_definitions": donor,
+              "native_510_i2c_nodes": native,
+              "exact_unit_address_matches": exact,
+          }
+          Path("port-report/stage14/se17-mmio-identity.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True)
+          )
+          Path("port-report/stage14/donor-definition.txt").write_text(
+              "\n\n".join(item["source"] for item in donor)
+          )
+          Path("port-report/stage14/native-i2c-candidates.txt").write_text(
+              "\n\n".join(item["source"] for item in native)
+          )
+
+          if len(donor) == 1 and len(exact) == 1:
+              state = "exact_single_address_match"
+              next_step = "verify parent QUP wrapper, clocks and pinctrl before controlled DTS port"
+          elif not donor:
+              state = "blocked_donor_label_definition_not_found"
+              next_step = "locate generated or included donor definition; do not mutate DTS"
+          elif not exact:
+              state = "blocked_no_native_5_10_address_match"
+              next_step = "resolve downstream-to-upstream address translation; do not mutate DTS"
+          else:
+              state = "blocked_ambiguous_address_match"
+              next_step = "disambiguate parent wrapper and clocks; do not mutate DTS"
+
+          status = [
+              "Linux 5.10 cepheus Stage 14 SE17 MMIO identity proof",
+              f"donor_definition_count={len(donor)}",
+              f"native_i2c_candidate_count={len(native)}",
+              f"exact_unit_address_match_count={len(exact)}",
+              f"se17_identity={state}",
+              "dts_mutated=no",
+              "flashable=no",
+              f"next={next_step}",
+          ]
+          Path("port-report/stage14/STATUS.txt").write_text("\n".join(status) + "\n")
+          PY
+          test -s port-report/stage14/se17-mmio-identity.json
+          test -s port-report/stage14/STATUS.txt
+          sha256sum port-report/stage14/*.txt port-report/stage14/*.json > port-report/stage14/SHA256SUMS
+          cat port-report/stage14/STATUS.txt
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 13
+          Linux 5.10 cepheus bring-up - Stage 14
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -614,7 +732,8 @@ jobs:
           5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
           6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
 
-          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.\n          stage10/ audits simple-framebuffer, native panel/DSI and touchscreen dependencies without claiming hardware support.\n          stage11/ identifies exact donor compatible strings and checks matching 5.10 panel/touch drivers before porting nodes.\n          stage12/ validates the exact st,fts touch driver, I2C17, GPIO pinctrl and regulator prerequisites.\n          stage13/ resolves the donor QUPv3 SE17 label to the exact native 5.10 controller identity before any touch DTS edit.
+          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.\n          stage10/ audits simple-framebuffer, native panel/DSI and touchscreen dependencies without claiming hardware support.\n          stage11/ identifies exact donor compatible strings and checks matching 5.10 panel/touch drivers before porting nodes.\n          stage12/ validates the exact st,fts touch driver, I2C17, GPIO pinctrl and regulator prerequisites.\n          stage13/ collects donor and native QUPv3 SE17 controller evidence.
+          stage14/ proves the donor SE17 unit address against native 5.10 I2C nodes; it does not mutate DTS.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
@@ -633,9 +752,9 @@ jobs:
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/SHA256SUMS
 
-      - name: Upload 5.10 Stage 5 artifacts
+      - name: Upload 5.10 Stage 14 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage13-Cepheus-QUPv3-SE17-Mapping-KSUN33214
+          name: Mi9-Linux510-Stage14-Cepheus-SE17-MMIO-Proof-KSUN33214
           path: dist/
           if-no-files-found: error
