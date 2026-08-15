@@ -154,25 +154,28 @@ jobs:
           p.write_text(s)
 
           p = Path('KernelSU-Next/kernel/include/util.h')
-          s = p.read_text()
-          if '#define ksu_close_fd sys_close' not in s:
-              s = s.replace(
-                  '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n'
-                  '#define ksu_close_fd close_fd\n'
-                  '#else\n'
-                  '#define ksu_close_fd ksys_close\n'
-                  '#endif\n',
-                  '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n'
-                  '#define ksu_close_fd close_fd\n'
-                  '#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)\n'
-                  '#define ksu_close_fd ksys_close\n'
-                  '#else\n'
-                  '#define ksu_close_fd sys_close\n'
-                  '#endif\n'
-              )
-          if '#define ksu_close_fd sys_close' not in s:
-              raise SystemExit('ksu_close_fd patch failed')
-          p.write_text(s)
+          if p.is_file():
+              s = p.read_text()
+              if '#define ksu_close_fd sys_close' not in s:
+                  s = s.replace(
+                      '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n'
+                      '#define ksu_close_fd close_fd\n'
+                      '#else\n'
+                      '#define ksu_close_fd ksys_close\n'
+                      '#endif\n',
+                      '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)\n'
+                      '#define ksu_close_fd close_fd\n'
+                      '#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)\n'
+                      '#define ksu_close_fd ksys_close\n'
+                      '#else\n'
+                      '#define ksu_close_fd sys_close\n'
+                      '#endif\n'
+                  )
+              if '#define ksu_close_fd sys_close' not in s:
+                  raise SystemExit('ksu_close_fd patch failed')
+              p.write_text(s)
+          else:
+              print('KSUN v3.2.0 has no kernel/include/util.h; close-fd patch not applicable')
 
           p = Path('KernelSU-Next/kernel/hook/lsm_hook.c')
           s = p.read_text()
@@ -292,7 +295,12 @@ jobs:
           grep -n 'NO_YAML' scripts/dtc/Makefile
           grep -n 'cmd_mkdtimg' scripts/Makefile.lib
           grep -n -E 'dt_entry_buf = |__metadata = ' scripts/dtc/mkdtboimg.py | head
-          grep -n -E 'syscall_fn_t|ksu_close_fd' KernelSU-Next/kernel/hook/syscall_hook.h KernelSU-Next/kernel/include/util.h
+          grep -n 'syscall_fn_t' KernelSU-Next/kernel/hook/syscall_hook.h
+          if test -f KernelSU-Next/kernel/include/util.h; then
+            grep -n 'ksu_close_fd' KernelSU-Next/kernel/include/util.h
+          else
+            echo "KSUN v3.2.0: kernel/include/util.h verification not applicable"
+          fi
           grep -n 'linux/uaccess.h' KernelSU-Next/kernel/hook/syscall_event_bridge.c
           grep -n -E 'KSU_LEGACY_414_PATCH_MEMORY_COMPAT|__pte_to_phys|copy_to_kernel_nofault|ksu_flush_icache' \
             KernelSU-Next/kernel/hook/arm64/patch_memory.c
