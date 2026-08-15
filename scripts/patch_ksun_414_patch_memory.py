@@ -48,6 +48,21 @@ for rel in ("KernelSU-Next/kernel/infra/event_queue.h","KernelSU-Next/kernel/inf
     q = kernel_root / rel
     q.write_text(q.read_text().replace('__poll_t', 'unsigned int'))
 
+# Linux 4.14 exports the legacy sys_ni_syscall symbol name. Patch the
+# ARM64 syscall hook source, not the unrelated supercall dispatcher.
+syscall_arm64 = kernel_root / "KernelSU-Next/kernel/hook/arm64/syscall_hook.c"
+if not syscall_arm64.is_file():
+    raise SystemExit(f"arm64 syscall_hook.c not found: {syscall_arm64}")
+sh = syscall_arm64.read_text()
+if '"__arm64_sys_ni_syscall"' in sh:
+    sh = sh.replace('"__arm64_sys_ni_syscall"', '"sys_ni_syscall"', 1)
+elif '"sys_ni_syscall"' not in sh:
+    raise SystemExit('Neither arm64 nor legacy ni_syscall symbol name found')
+if '"sys_ni_syscall"' not in sh:
+    raise SystemExit('Linux 4.14 ni_syscall symbol selection failed')
+syscall_arm64.write_text(sh)
+print(f"Patched {syscall_arm64} for Linux 4.14 ni_syscall symbol")
+
 # KSUN supercall/dispatch uses scheduler globals whose declarations are not
 # pulled transitively on the 4.14 downstream tree. Include sched/signal.h,
 # which declares tasklist_lock/init_task and task session/pgrp helpers.
@@ -55,12 +70,6 @@ dispatch = kernel_root / "KernelSU-Next/kernel/supercall/dispatch.c"
 if not dispatch.is_file():
     raise SystemExit(f"dispatch.c not found: {dispatch}")
 d = dispatch.read_text()
-if '"__arm64_sys_ni_syscall"' in d:
-    d = d.replace('"__arm64_sys_ni_syscall"', '"sys_ni_syscall"', 1)
-elif '"sys_ni_syscall"' not in d:
-    raise SystemExit('Neither arm64 nor legacy ni_syscall symbol name found')
-if '"sys_ni_syscall"' not in d:
-    raise SystemExit('Linux 4.14 ni_syscall symbol selection failed')
 if '#include <linux/sched/signal.h>' not in d:
     lines = d.splitlines(True)
     insert_at = 0
