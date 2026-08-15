@@ -402,10 +402,67 @@ jobs:
           (cd port-report/stage9 && sha256sum *.dtb *.txt > SHA256SUMS)
           cat port-report/stage9/STATUS.txt
 
+      - name: Stage 10 - audit cepheus display and touch dependencies
+        run: |
+          set -euxo pipefail
+          BOARD=kernel510/arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dts
+          DTB=kernel510/out/arch/arm64/boot/dts/qcom/sm8150-xiaomi-cepheus.dtb
+          DONOR_ROOT=donor414/arch/arm64/boot/dts
+          test -s "$BOARD"
+          test -s "$DTB"
+          mkdir -p port-report/stage10
+
+          grep -nEi -B20 -A60 'framebuffer|display|dsi|mdss|panel' "$BOARD" \
+            > port-report/stage10/compiled510-display-source.txt || true
+          grep -RniE -B12 -A45 'display|dsi|mdss|panel|1080|2340' "$DONOR_ROOT/qcom" \
+            --include='*cepheus*' --include='*xiaomi-sm8150*' \
+            > port-report/stage10/donor414-display-map.txt || true
+          grep -RniE -B12 -A45 'touch|touchscreen|goodix|synaptics|focaltech|fts' "$DONOR_ROOT/qcom" \
+            --include='*cepheus*' --include='*xiaomi-sm8150*' \
+            > port-report/stage10/donor414-touch-map.txt || true
+
+          dtc -I dtb -O dts -o port-report/stage10/sm8150-xiaomi-cepheus-stage10.dts "$DTB"
+          grep -nEi -B20 -A60 'framebuffer|display|dsi|mdss|panel|touch|touchscreen|goodix|synaptics|focaltech|fts' \
+            port-report/stage10/sm8150-xiaomi-cepheus-stage10.dts \
+            > port-report/stage10/compiled510-display-touch-map.txt || true
+
+          SIMPLE_FB_COUNT=$(grep -cEi 'simple-framebuffer|framebuffer@' "$BOARD" || true)
+          PANEL_COUNT=$(grep -cEi 'panel@|qcom,mdss-dsi|dsi-panel' "$BOARD" || true)
+          TOUCH_COUNT=$(grep -cEi 'touchscreen|goodix|synaptics|focaltech|fts' "$BOARD" || true)
+          DONOR_TOUCH_COUNT=$(grep -RciE 'touchscreen|goodix|synaptics|focaltech|fts' "$DONOR_ROOT/qcom" \
+            --include='*cepheus*' --include='*xiaomi-sm8150*' | awk -F: '{s+=$2} END {print s+0}')
+          {
+            echo "Linux 5.10 cepheus Stage 10 display/touch audit"
+            echo "real_cepheus_dtb=verified"
+            echo "simple_framebuffer_references=$SIMPLE_FB_COUNT"
+            echo "native_panel_references=$PANEL_COUNT"
+            echo "native_touch_references=$TOUCH_COUNT"
+            echo "donor_touch_references=$DONOR_TOUCH_COUNT"
+            echo "flashable=no"
+            if [ "$SIMPLE_FB_COUNT" -gt 0 ]; then
+              echo "early_display=simple_framebuffer_present"
+            else
+              echo "early_display=blocking_missing"
+            fi
+            if [ "$PANEL_COUNT" -eq 0 ]; then
+              echo "native_panel=not_ported"
+            else
+              echo "native_panel=present_needs_driver_validation"
+            fi
+            if [ "$TOUCH_COUNT" -eq 0 ]; then
+              echo "touch=not_ported"
+            else
+              echo "touch=present_needs_driver_validation"
+            fi
+            echo "next=select exact donor panel and touch nodes plus matching 5.10 drivers"
+          } > port-report/stage10/STATUS.txt
+          sha256sum port-report/stage10/*.txt > port-report/stage10/SHA256SUMS
+          cat port-report/stage10/STATUS.txt
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 9
+          Linux 5.10 cepheus bring-up - Stage 10
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -418,7 +475,7 @@ jobs:
           5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
           6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
 
-          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.
+          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.\n          stage10/ audits simple-framebuffer, native panel/DSI and touchscreen dependencies without claiming hardware support.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
@@ -440,6 +497,6 @@ jobs:
       - name: Upload 5.10 Stage 5 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage9-Cepheus-UFS-Enablement-KSUN33214
+          name: Mi9-Linux510-Stage10-Cepheus-Display-Touch-Audit-KSUN33214
           path: dist/
           if-no-files-found: error
