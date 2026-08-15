@@ -30,17 +30,21 @@ if 'KSU 4.14 diagnostic no-write' not in s:
     raise SystemExit('Diagnostic no-write guard insertion failed')
 p.write_text(s)
 
-# SULog compatibility.
+# SULog compatibility (introduced after the v3.2.0 layout).
 event = kernel_root / "KernelSU-Next/kernel/sulog/event.c"
-e = event.read_text().replace('#include <linux/minmax.h>\n', '#include <linux/kernel.h>\n', 1)
-if '#define ktime_get_boottime_ts64(ts)' not in e:
-    marker = '#include <linux/version.h>\n'
-    block = marker + '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)\n#ifndef ktime_get_boottime_ts64\n#define ktime_get_boottime_ts64(ts) (*(ts) = ktime_to_timespec64(ktime_get_boottime()))\n#endif\n#ifndef strncpy_from_user_nofault\n#define strncpy_from_user_nofault(dst, src, count) strncpy_from_user((dst), (src), (count))\n#endif\n#endif\n'
-    e = e.replace(marker, block, 1)
-event.write_text(e)
-for rel in ("KernelSU-Next/kernel/infra/event_queue.h","KernelSU-Next/kernel/infra/event_queue.c","KernelSU-Next/kernel/sulog/fd.c"):
-    q = kernel_root / rel
-    q.write_text(q.read_text().replace('__poll_t', 'unsigned int'))
+if event.is_file():
+    e = event.read_text().replace('#include <linux/minmax.h>\n', '#include <linux/kernel.h>\n', 1)
+    if '#define ktime_get_boottime_ts64(ts)' not in e:
+        marker = '#include <linux/version.h>\n'
+        block = marker + '#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)\n#ifndef ktime_get_boottime_ts64\n#define ktime_get_boottime_ts64(ts) (*(ts) = ktime_to_timespec64(ktime_get_boottime()))\n#endif\n#ifndef strncpy_from_user_nofault\n#define strncpy_from_user_nofault(dst, src, count) strncpy_from_user((dst), (src), (count))\n#endif\n#endif\n'
+        e = e.replace(marker, block, 1)
+    event.write_text(e)
+    for rel in ("KernelSU-Next/kernel/infra/event_queue.h","KernelSU-Next/kernel/infra/event_queue.c","KernelSU-Next/kernel/sulog/fd.c"):
+        q = kernel_root / rel
+        if q.is_file():
+            q.write_text(q.read_text().replace('__poll_t', 'unsigned int'))
+else:
+    print("KSUN v3.2.0 has no sulog/event.c; SULog compatibility patch not applicable")
 
 # KSUN supercall/dispatch uses scheduler globals whose declarations are not
 # pulled transitively on the 4.14 downstream tree. Include sched/signal.h,
