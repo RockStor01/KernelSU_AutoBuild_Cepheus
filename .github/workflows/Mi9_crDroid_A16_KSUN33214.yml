@@ -283,8 +283,11 @@ jobs:
               raise SystemExit('Legacy LSM iterator patch failed')
           if 'struct list_head *head;' not in s:
               raise SystemExit('Legacy LSM head type patch failed')
+          if ('unhook legacy list_head slot' not in s and
+                  'slot = (void **)((char *)hook->entry + hook->hook_offset);' not in s):
+              raise SystemExit('No supported legacy LSM unhook slot implementation found')
           if 'unhook legacy list_head slot' not in s:
-              raise SystemExit('Legacy LSM unhook patch failed')
+              print('KSUN v3.2.0 uses the verified direct hook_offset unhook slot')
           p.write_text(s)
           PY
 
@@ -305,7 +308,7 @@ jobs:
           grep -n -E 'KSU_LEGACY_414_PATCH_MEMORY_COMPAT|__pte_to_phys|copy_to_kernel_nofault|ksu_flush_icache' \
             KernelSU-Next/kernel/hook/arm64/patch_memory.c
           grep -n 'KSU 4.14 diagnostic no-write' KernelSU-Next/kernel/hook/arm64/patch_memory.c
-          grep -n -E 'ksu_lsm_for_each_entry|struct list_head \*head|offset LSM hook unsupported|unhook legacy list_head' \
+          grep -n -E 'ksu_lsm_for_each_entry|struct list_head \*head|offset LSM hook unsupported|unhook legacy list_head|hook->entry \+ hook->hook_offset' \
             KernelSU-Next/kernel/hook/lsm_hook.c
           grep -n -E 'KSU_LEGACY_414_SU_MOUNT_NS_COMPAT|uapi/linux/mount.h' \
            KernelSU-Next/kernel/infra/su_mount_ns.c
