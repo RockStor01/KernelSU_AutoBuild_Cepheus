@@ -554,10 +554,54 @@ jobs:
           sha256sum port-report/stage12/*.txt > port-report/stage12/SHA256SUMS
           cat port-report/stage12/STATUS.txt
 
+      - name: Stage 13 - resolve QUPv3 SE17 controller mapping
+        run: |
+          set -euxo pipefail
+          DONOR=donor414/arch/arm64/boot/dts/qcom/cepheus-sm8150.dtsi
+          DONOR_DTS=donor414/arch/arm64/boot/dts/qcom
+          K510_DTS=kernel510/arch/arm64/boot/dts/qcom
+          BOARD=$K510_DTS/sm8150-xiaomi-cepheus.dts
+          mkdir -p port-report/stage13
+          test -s "$DONOR"
+          test -s "$BOARD"
+
+          grep -RniE -B12 -A45 'qupv3_se17_i2c|i2c.*(se|serial.engine).*17|serial.engine.*17' "$DONOR_DTS" \
+            > port-report/stage13/donor-se17-context.txt || true
+          grep -RniE -B12 -A45 'qupv3|geni-se|qcom,geni|i2c@[0-9a-f]+' "$K510_DTS/sm8150.dtsi" "$BOARD" \
+            > port-report/stage13/kernel510-qupv3-controller-context.txt || true
+          grep -RniE 'aliases|i2c[0-9]+[[:space:]]*=|qupv3_[a-zA-Z0-9_]+|serial-engine|qcom,wrapper-core' "$K510_DTS" \
+            > port-report/stage13/kernel510-qupv3-label-alias-map.txt || true
+          grep -RniE 'SE_GENI|GENI_SE|QUPV3|I2C.*SE|SE.*I2C' \
+            kernel510/drivers/i2c kernel510/drivers/soc/qcom kernel510/include kernel510/Documentation \
+            > port-report/stage13/kernel510-geni-driver-evidence.txt || true
+
+          DONOR_MATCHES=$(wc -l < port-report/stage13/donor-se17-context.txt)
+          CONTROLLER_MATCHES=$(wc -l < port-report/stage13/kernel510-qupv3-controller-context.txt)
+          LABEL_MATCHES=$(wc -l < port-report/stage13/kernel510-qupv3-label-alias-map.txt)
+          DRIVER_MATCHES=$(wc -l < port-report/stage13/kernel510-geni-driver-evidence.txt)
+          {
+            echo "Linux 5.10 cepheus Stage 13 QUPv3 SE17 mapping"
+            echo "donor_se17_context_lines=$DONOR_MATCHES"
+            echo "kernel510_controller_context_lines=$CONTROLLER_MATCHES"
+            echo "kernel510_label_alias_lines=$LABEL_MATCHES"
+            echo "kernel510_geni_driver_lines=$DRIVER_MATCHES"
+            echo "flashable=no"
+            if [ "$DONOR_MATCHES" -eq 0 ]; then
+              echo "se17_mapping=blocked_missing_donor_label"
+            elif [ "$CONTROLLER_MATCHES" -eq 0 ] || [ "$LABEL_MATCHES" -eq 0 ]; then
+              echo "se17_mapping=blocked_missing_5_10_controller_identity"
+            else
+              echo "se17_mapping=evidence_collected_for_manual_identity_check"
+            fi
+            echo "next=identify the exact 5.10 controller address and label before adding the st,fts node"
+          } > port-report/stage13/STATUS.txt
+          sha256sum port-report/stage13/*.txt > port-report/stage13/SHA256SUMS
+          cat port-report/stage13/STATUS.txt
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 12
+          Linux 5.10 cepheus bring-up - Stage 13
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -570,7 +614,7 @@ jobs:
           5. Port audio, WLAN/BT, fingerprint, NFC, cameras and remaining peripherals.
           6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
 
-          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.\n          stage10/ audits simple-framebuffer, native panel/DSI and touchscreen dependencies without claiming hardware support.\n          stage11/ identifies exact donor compatible strings and checks matching 5.10 panel/touch drivers before porting nodes.\n          stage12/ validates the exact st,fts touch driver, I2C17, GPIO pinctrl and regulator prerequisites.
+          stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.\n          stage10/ audits simple-framebuffer, native panel/DSI and touchscreen dependencies without claiming hardware support.\n          stage11/ identifies exact donor compatible strings and checks matching 5.10 panel/touch drivers before porting nodes.\n          stage12/ validates the exact st,fts touch driver, I2C17, GPIO pinctrl and regulator prerequisites.\n          stage13/ resolves the donor QUPv3 SE17 label to the exact native 5.10 controller identity before any touch DTS edit.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
@@ -592,6 +636,6 @@ jobs:
       - name: Upload 5.10 Stage 5 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage12-Cepheus-ST-FTS-Touch-Prerequisites-KSUN33214
+          name: Mi9-Linux510-Stage13-Cepheus-QUPv3-SE17-Mapping-KSUN33214
           path: dist/
           if-no-files-found: error
