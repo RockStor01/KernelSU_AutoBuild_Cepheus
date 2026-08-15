@@ -136,7 +136,9 @@ jobs:
           if 'define strncpy_from_user_nofault' not in s:
               marker = '#include "util.h"\n'
               if marker not in s:
-                  raise SystemExit('Expected util.h include not found in sucompat.c')
+                  marker = '#include "tiny_sulog.h"\n'
+              if marker not in s:
+                  raise SystemExit('No stable compatibility insertion marker found in sucompat.c')
               s = s.replace(marker, marker + compat, 1)
           p.write_text(s)
 
