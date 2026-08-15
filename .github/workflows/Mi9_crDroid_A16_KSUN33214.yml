@@ -116,10 +116,13 @@ jobs:
           p.write_text(s)
 
           p = Path('KernelSU-Next/kernel/feature/sulog.h')
-          s = p.read_text()
-          if '#include <linux/init.h>' not in s:
-              s = s.replace('#include <linux/types.h>\n', '#include <linux/types.h>\n#include <linux/init.h>\n')
-          p.write_text(s)
+          if p.is_file():
+              s = p.read_text()
+              if '#include <linux/init.h>' not in s:
+                  s = s.replace('#include <linux/types.h>\n', '#include <linux/types.h>\n#include <linux/init.h>\n')
+              p.write_text(s)
+          else:
+              print('KSUN v3.2.0 has no feature/sulog.h; compatibility patch not applicable')
 
           p = Path('KernelSU-Next/kernel/feature/sucompat.c')
           s = p.read_text()
