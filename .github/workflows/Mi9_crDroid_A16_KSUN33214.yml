@@ -50,9 +50,12 @@ jobs:
         working-directory: kernel
         run: |
           rm -rf KernelSU KernelSU-Next
-          curl -LSs \
-            "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
-            | bash -s "${KSUN_TAG}"
+          SETUP_URL="https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh"
+          curl --fail --location --silent --show-error \
+            --retry 6 --retry-delay 10 --retry-all-errors \
+            "${SETUP_URL}" -o /tmp/ksun-setup.sh
+          grep -q 'KernelSU-Next' /tmp/ksun-setup.sh
+          bash /tmp/ksun-setup.sh "${KSUN_TAG}"
           echo "KernelSU integration paths:"
           find . -maxdepth 2 -type d \( -name 'KernelSU*' -o -name 'kernelsu*' \) -print
 
