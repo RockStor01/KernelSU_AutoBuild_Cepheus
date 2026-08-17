@@ -839,10 +839,35 @@ jobs:
           sha256sum port-report/stage16/*.txt > port-report/stage16/SHA256SUMS
           cat port-report/stage16/STATUS.txt
 
+      - name: Stage 17 - extract SE17 provider dependencies
+        run: |
+          set -euxo pipefail
+          mkdir -p port-report/stage17
+          grep -RniE --exclude-dir=.git --exclude-dir=out -B20 -A80             '(^|[[:space:]])qupv3_se17_i2c[[:space:]]*:|define[[:space:]]+qupv3_se17_i2c' donor414             > port-report/stage17/se17-provider-context.txt
+          grep -Ei 'qupv3|wrapper|geni|i2c|reg[[:space:]]*=|clock|pinctrl|interrupt|dma'             port-report/stage17/se17-provider-context.txt             > port-report/stage17/se17-provider-dependencies.txt || true
+          PROVIDERS=$(grep -RniE --exclude-dir=.git --exclude-dir=out             '(^|[[:space:]])qupv3_se17_i2c[[:space:]]*:|define[[:space:]]+qupv3_se17_i2c' donor414 | wc -l)
+          ADDRESSES=$(grep -cEi '(@[0-9a-f]+|reg[[:space:]]*=)' port-report/stage17/se17-provider-context.txt || true)
+          {
+            echo "Linux 5.10 cepheus Stage 17 SE17 provider dependency extraction"
+            echo "provider_definition_lines=$PROVIDERS"
+            echo "address_or_reg_lines=$ADDRESSES"
+            echo "dts_mutated=no"
+            echo "flashable=no"
+            if [ "$PROVIDERS" -gt 0 ] && [ "$ADDRESSES" -gt 0 ]; then
+              echo "se17_mapping=provider_dependencies_extracted"
+              echo "next=compare exact controller address and parent wrapper with native 5.10"
+            else
+              echo "se17_mapping=blocked_incomplete_provider_context"
+              echo "next=retain analysis-only state; do not mutate DTS"
+            fi
+          } > port-report/stage17/STATUS.txt
+          sha256sum port-report/stage17/*.txt > port-report/stage17/SHA256SUMS
+          cat port-report/stage17/STATUS.txt
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 16
+          Linux 5.10 cepheus bring-up - Stage 17
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -877,9 +902,9 @@ jobs:
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/SHA256SUMS
 
-      - name: Upload 5.10 Stage 16 artifacts
+      - name: Upload 5.10 Stage 17 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage16-Cepheus-SE17-Full-Tree-Trace-KSUN33214
+          name: Mi9-Linux510-Stage17-Cepheus-SE17-Dependencies-KSUN33214
           path: dist/
           if-no-files-found: error
