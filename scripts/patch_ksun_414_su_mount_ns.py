@@ -42,12 +42,30 @@ if "KSU_LEGACY_UNSHARE_COMPAT" not in s:
 if 'ksys_unshare(CLONE_NEWNS)' in s:
     s = s.replace('ksys_unshare(CLONE_NEWNS)', 'ksu_unshare(CLONE_NEWNS)', 1)
 
+old_close = '''#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+    ksys_close(fd);
+#else
+    close_fd(fd);
+#endif
+'''
+new_close = '''#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+    sys_close(fd);
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+    ksys_close(fd);
+#else
+    close_fd(fd);
+#endif
+'''
+if old_close in s:
+    s = s.replace(old_close, new_close, 1)
+
 checks = (
     "KSU_LEGACY_414_SU_MOUNT_NS_COMPAT",
     "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)",
     "KSU_LEGACY_UNSHARE_COMPAT",
     "#define ksu_unshare sys_unshare",
     "ksu_unshare(CLONE_NEWNS)",
+    "sys_close(fd);",
 )
 missing = [x for x in checks if x not in s]
 if missing:
