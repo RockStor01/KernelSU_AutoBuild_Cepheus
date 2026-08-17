@@ -864,10 +864,42 @@ jobs:
           sha256sum port-report/stage17/*.txt > port-report/stage17/SHA256SUMS
           cat port-report/stage17/STATUS.txt
 
+      - name: Stage 18 - compare SE17 address and native parent wrapper
+        run: |
+          set -euxo pipefail
+          mkdir -p port-report/stage18
+          grep -oEi '(@[0-9a-f]{5,}|0x[0-9a-f]{5,})'             port-report/stage17/se17-provider-context.txt             | sed -E 's/^@//; s/^0x//' | sort -u             > port-report/stage18/donor-addresses.txt || true
+          : > port-report/stage18/native-address-matches.txt
+          while IFS= read -r addr; do
+            [ -n "$addr" ] || continue
+            (grep -RniE --include='*.dts' --include='*.dtsi'               "$addr" kernel510/arch/arm64/boot/dts/qcom 2>/dev/null || true)               >> port-report/stage18/native-address-matches.txt
+          done < port-report/stage18/donor-addresses.txt
+          grep -Ei 'qupv3|wrapper|geni|parent|clock|pinctrl|interrupt|dma'             port-report/stage17/se17-provider-dependencies.txt             > port-report/stage18/donor-wrapper-dependencies.txt || true
+          DONOR_ADDRS=$(wc -l < port-report/stage18/donor-addresses.txt)
+          NATIVE_MATCHES=$(wc -l < port-report/stage18/native-address-matches.txt)
+          WRAPPER_LINES=$(wc -l < port-report/stage18/donor-wrapper-dependencies.txt)
+          {
+            echo "Linux 5.10 cepheus Stage 18 SE17 address and wrapper comparison"
+            echo "donor_unique_addresses=$DONOR_ADDRS"
+            echo "native_address_match_lines=$NATIVE_MATCHES"
+            echo "donor_wrapper_dependency_lines=$WRAPPER_LINES"
+            echo "dts_mutated=no"
+            echo "flashable=no"
+            if [ "$DONOR_ADDRS" -gt 0 ] && [ "$NATIVE_MATCHES" -gt 0 ] && [ "$WRAPPER_LINES" -gt 0 ]; then
+              echo "se17_mapping=address_and_wrapper_candidates_found"
+              echo "next=validate exact native controller node before any DTS port"
+            else
+              echo "se17_mapping=blocked_no_exact_native_candidate"
+              echo "next=retain analysis-only state; do not mutate DTS"
+            fi
+          } > port-report/stage18/STATUS.txt
+          sha256sum port-report/stage18/*.txt > port-report/stage18/SHA256SUMS
+          cat port-report/stage18/STATUS.txt
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 17
+          Linux 5.10 cepheus bring-up - Stage 18
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -884,6 +916,8 @@ jobs:
           stage14/ attempts an address-level match and records unresolved source definitions.
           stage15/ establishes that the DTS tree contains references but no local label definition.
           stage16/ searches both complete source trees for the provider, macro or generated dependency.
+          stage17/ extracts the SE17 provider dependencies without mutating DTS.
+          stage18/ compares donor addresses and wrapper evidence against native 5.10 sources.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
@@ -902,9 +936,9 @@ jobs:
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/SHA256SUMS
 
-      - name: Upload 5.10 Stage 17 artifacts
+      - name: Upload 5.10 Stage 18 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage17-Cepheus-SE17-Dependencies-KSUN33214
+          name: Mi9-Linux510-Stage18-Cepheus-SE17-Address-Wrapper-KSUN33214
           path: dist/
           if-no-files-found: error
