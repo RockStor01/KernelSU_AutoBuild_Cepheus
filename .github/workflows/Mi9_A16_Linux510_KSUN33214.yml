@@ -716,10 +716,98 @@ jobs:
           sha256sum port-report/stage14/*.txt port-report/stage14/*.json > port-report/stage14/SHA256SUMS
           cat port-report/stage14/STATUS.txt
 
+      - name: Stage 15 - trace SE17 label provider and include chain
+        run: |
+          set -euxo pipefail
+          mkdir -p port-report/stage15
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          roots = {
+              "donor414": Path("donor414/arch/arm64/boot/dts"),
+              "native510": Path("kernel510/arch/arm64/boot/dts"),
+          }
+          label = "qupv3_se17_i2c"
+          declaration = re.compile(
+              rf"(?m)^\s*{label}\s*:\s*(?P<node>[A-Za-z0-9_,.+-]+)"
+              r"(?:@(?P<unit>[0-9a-fA-F]+))?\s*\{"
+          )
+          evidence = {}
+          for name, root in roots.items():
+              matches = []
+              for path in root.rglob("*"):
+                  if path.suffix not in {".dts", ".dtsi", ".h"}:
+                      continue
+                  text = path.read_text(errors="replace")
+                  for line_no, line in enumerate(text.splitlines(), 1):
+                      if label in line:
+                          matches.append({
+                              "path": str(path),
+                              "line": line_no,
+                              "text": line.strip(),
+                              "kind": (
+                                  "definition" if declaration.search(line)
+                                  else "preprocessor" if line.lstrip().startswith("#")
+                                  else "reference"
+                              ),
+                          })
+              evidence[name] = matches
+
+          donor_definitions = [
+              item for item in evidence["donor414"] if item["kind"] == "definition"
+          ]
+          report = {
+              "label": label,
+              "evidence": evidence,
+              "donor_definitions": donor_definitions,
+          }
+          Path("port-report/stage15/se17-label-provider.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True)
+          )
+          for name, items in evidence.items():
+              Path(f"port-report/stage15/{name}-label-lines.txt").write_text(
+                  "\n".join(
+                      f'{item["path"]}:{item["line"]}:{item["kind"]}:{item["text"]}'
+                      for item in items
+                  ) + ("\n" if items else "")
+              )
+
+          if len(donor_definitions) == 1:
+              state = "single_source_definition_found"
+              next_step = "extract parent wrapper, reg, clocks and pinctrl for native mapping"
+          elif len(donor_definitions) > 1:
+              state = "ambiguous_multiple_definitions"
+              next_step = "resolve active include path before any DTS edit"
+          elif evidence["donor414"]:
+              state = "references_only_definition_from_untracked_include_or_macro"
+              next_step = "trace include and generated-label provider; do not mutate DTS"
+          else:
+              state = "label_absent_from_checked_source_tree"
+              next_step = "verify donor checkout and build target; do not mutate DTS"
+
+          status = [
+              "Linux 5.10 cepheus Stage 15 SE17 label-provider trace",
+              f'donor_label_lines={len(evidence["donor414"])}',
+              f'native510_label_lines={len(evidence["native510"])}',
+              f'donor_definition_count={len(donor_definitions)}',
+              f'se17_provider={state}',
+              "dts_mutated=no",
+              "flashable=no",
+              f"next={next_step}",
+          ]
+          Path("port-report/stage15/STATUS.txt").write_text("\n".join(status) + "\n")
+          PY
+          grep -RniE '(^|[[:space:]])#include|qupv3_se17_i2c'             donor414/arch/arm64/boot/dts/qcom             > port-report/stage15/donor-include-and-label-map.txt || true
+          test -s port-report/stage15/STATUS.txt
+          sha256sum port-report/stage15/*.txt port-report/stage15/*.json > port-report/stage15/SHA256SUMS
+          cat port-report/stage15/STATUS.txt
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 14
+          Linux 5.10 cepheus bring-up - Stage 15
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -733,7 +821,8 @@ jobs:
           6. Compile a real cepheus DTB and only then move to boot.img/AnyKernel packaging.
 
           stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.\n          stage10/ audits simple-framebuffer, native panel/DSI and touchscreen dependencies without claiming hardware support.\n          stage11/ identifies exact donor compatible strings and checks matching 5.10 panel/touch drivers before porting nodes.\n          stage12/ validates the exact st,fts touch driver, I2C17, GPIO pinctrl and regulator prerequisites.\n          stage13/ collects donor and native QUPv3 SE17 controller evidence.
-          stage14/ proves the donor SE17 unit address against native 5.10 I2C nodes; it does not mutate DTS.
+          stage14/ attempts an address-level match and records unresolved source definitions.
+          stage15/ traces the exact SE17 label provider and include chain without mutating DTS.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
@@ -752,9 +841,9 @@ jobs:
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/SHA256SUMS
 
-      - name: Upload 5.10 Stage 14 artifacts
+      - name: Upload 5.10 Stage 15 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage14-Cepheus-SE17-MMIO-Proof-KSUN33214
+          name: Mi9-Linux510-Stage15-Cepheus-SE17-Provider-Trace-KSUN33214
           path: dist/
           if-no-files-found: error
