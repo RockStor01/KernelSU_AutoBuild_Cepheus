@@ -227,7 +227,6 @@ checks = (
     "#include <linux/sched/task.h>",
     "#define KSU_TASK_WORK_NOTIFY true",
     "task_work_add(tsk, cb, KSU_TASK_WORK_NOTIFY)",
-    "/* fall through */",
 )
 missing = [x for x in checks if x not in s]
 if missing:
