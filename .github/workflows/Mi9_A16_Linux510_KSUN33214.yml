@@ -843,9 +843,9 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p port-report/stage17
-          grep -RniE --exclude-dir=.git --exclude-dir=out -B20 -A80             '(^|[[:space:]])qupv3_se17_i2c[[:space:]]*:|define[[:space:]]+qupv3_se17_i2c' donor414             > port-report/stage17/se17-provider-context.txt
+          (grep -RniE --exclude-dir=.git --exclude-dir=out -B20 -A80             '(^|[[:space:]])qupv3_se17_i2c[[:space:]]*:|define[[:space:]]+qupv3_se17_i2c' donor414 2>/dev/null || true)             > port-report/stage17/se17-provider-context.txt
           grep -Ei 'qupv3|wrapper|geni|i2c|reg[[:space:]]*=|clock|pinctrl|interrupt|dma'             port-report/stage17/se17-provider-context.txt             > port-report/stage17/se17-provider-dependencies.txt || true
-          PROVIDERS=$(grep -RniE --exclude-dir=.git --exclude-dir=out             '(^|[[:space:]])qupv3_se17_i2c[[:space:]]*:|define[[:space:]]+qupv3_se17_i2c' donor414 | wc -l)
+          PROVIDERS=$((grep -RniE --exclude-dir=.git --exclude-dir=out             '(^|[[:space:]])qupv3_se17_i2c[[:space:]]*:|define[[:space:]]+qupv3_se17_i2c' donor414 2>/dev/null || true) | wc -l)
           ADDRESSES=$(grep -cEi '(@[0-9a-f]+|reg[[:space:]]*=)' port-report/stage17/se17-provider-context.txt || true)
           {
             echo "Linux 5.10 cepheus Stage 17 SE17 provider dependency extraction"
