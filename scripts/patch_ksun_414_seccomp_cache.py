@@ -53,7 +53,11 @@ subprocess.run([sys.executable, str(selinux_helper), str(kernel_root)], check=Tr
 
 # KernelSU-Next SELinux-hide depends on the modern replaceable
 # struct selinux_policy layout.  Use a safe no-op implementation on 4.14.
-selinux_hide_helper = Path(__file__).with_name("patch_ksun_414_selinux_hide.py")
-if not selinux_hide_helper.is_file():
-    raise SystemExit(f"SELinux hide helper not found: {selinux_hide_helper}")
-subprocess.run([sys.executable, str(selinux_hide_helper), str(kernel_root)], check=True)
+selinux_hide_target = kernel_root / "KernelSU-Next/kernel/feature/selinux_hide.c"
+if selinux_hide_target.is_file():
+    selinux_hide_helper = Path(__file__).with_name("patch_ksun_414_selinux_hide.py")
+    if not selinux_hide_helper.is_file():
+        raise SystemExit(f"SELinux hide helper not found: {selinux_hide_helper}")
+    subprocess.run([sys.executable, str(selinux_hide_helper), str(kernel_root)], check=True)
+else:
+    print("KSUN v3.2.0 has no selinux_hide.c; compatibility patch not applicable")
