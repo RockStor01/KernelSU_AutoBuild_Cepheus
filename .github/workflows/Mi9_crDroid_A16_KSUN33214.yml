@@ -156,6 +156,21 @@ jobs:
               raise SystemExit('uaccess include patch failed')
           p.write_text(s)
 
+          p = Path('KernelSU-Next/kernel/supercall/supercall.c')
+          s = p.read_text()
+          old = '    ksys_close(fd);'
+          new = ('#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+                 '    sys_close(fd);\n'
+                 '#else\n'
+                 '    ksys_close(fd);\n'
+                 '#endif')
+          if old not in s:
+              raise SystemExit('Expected ksys_close call not found in supercall.c')
+          s = s.replace(old, new)
+          if 'sys_close(fd);' not in s:
+              raise SystemExit('supercall close compatibility patch failed')
+          p.write_text(s)
+
           p = Path('KernelSU-Next/kernel/include/util.h')
           if p.is_file():
               s = p.read_text()
