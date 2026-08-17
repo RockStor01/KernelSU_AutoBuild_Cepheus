@@ -804,10 +804,40 @@ jobs:
           sha256sum port-report/stage15/*.txt port-report/stage15/*.json > port-report/stage15/SHA256SUMS
           cat port-report/stage15/STATUS.txt
 
+      - name: Stage 16 - search complete source trees for SE17 provider
+        run: |
+          set -euxo pipefail
+          mkdir -p port-report/stage16
+          grep -RIl --exclude-dir=.git --exclude-dir=out 'qupv3_se17_i2c' donor414             | sort > port-report/stage16/donor-provider-files.txt || true
+          grep -RIl --exclude-dir=.git --exclude-dir=out 'qupv3_se17_i2c' kernel510             | sort > port-report/stage16/native510-provider-files.txt || true
+          grep -RniE --exclude-dir=.git --exclude-dir=out             -B6 -A20 'qupv3_se17_i2c|define[[:space:]]+qupv3_se17_i2c' donor414             > port-report/stage16/donor-complete-context.txt || true
+          grep -RniE --exclude-dir=.git --exclude-dir=out             -B6 -A20 'qupv3_se17_i2c|define[[:space:]]+qupv3_se17_i2c' kernel510             > port-report/stage16/native510-complete-context.txt || true
+
+          DONOR_FILES=$(wc -l < port-report/stage16/donor-provider-files.txt)
+          NATIVE_FILES=$(wc -l < port-report/stage16/native510-provider-files.txt)
+          DONOR_DEFS=$(grep -RniE --exclude-dir=.git --exclude-dir=out             '(^|[[:space:]])qupv3_se17_i2c[[:space:]]*:|define[[:space:]]+qupv3_se17_i2c' donor414             | wc -l || true)
+          {
+            echo "Linux 5.10 cepheus Stage 16 complete SE17 provider search"
+            echo "donor_provider_files=$DONOR_FILES"
+            echo "native510_provider_files=$NATIVE_FILES"
+            echo "donor_definition_or_macro_lines=$DONOR_DEFS"
+            echo "dts_mutated=no"
+            echo "flashable=no"
+            if [ "$DONOR_DEFS" -gt 0 ]; then
+              echo "se17_provider=found_in_complete_source_tree"
+              echo "next=extract exact provider address, parent wrapper, clocks and pinctrl"
+            else
+              echo "se17_provider=external_or_generated_dependency_confirmed"
+              echo "next=identify donor build dependency supplying the label; do not mutate DTS"
+            fi
+          } > port-report/stage16/STATUS.txt
+          sha256sum port-report/stage16/*.txt > port-report/stage16/SHA256SUMS
+          cat port-report/stage16/STATUS.txt
+
       - name: Stage 3 - generate migration plan
         run: |
           cat > port-report/README-STAGE3.txt <<'EOF'
-          Linux 5.10 cepheus bring-up - Stage 15
+          Linux 5.10 cepheus bring-up - Stage 16
 
           This artifact intentionally does NOT rename sm8150-mtp.dtb to cepheus.dtb.
           A renamed MTP DTB is not a Xiaomi Mi 9 board DT and is unsafe to treat as flash-ready.
@@ -822,7 +852,8 @@ jobs:
 
           stage4/ contains the first real Xiaomi Mi 9 DT compile attempt and its complete build log.\n          stage5/ contains the validated real cepheus DTB paired with the 5.10 kernel Image; it is not flashable.\n          stage6/ audits storage and USB boot-critical nodes and records explicit blockers.\n          stage7/ maps compiled 5.10 UFS/USB context against the 4.14 cepheus donor.\n          stage8/ audits exact status, supply, clock, reset and PHY-link evidence before DTS edits.\n          stage9/ enables the native 5.10 UFS controller/PHY with cepheus donor rail mappings and recompiles the real DTB.\n          stage10/ audits simple-framebuffer, native panel/DSI and touchscreen dependencies without claiming hardware support.\n          stage11/ identifies exact donor compatible strings and checks matching 5.10 panel/touch drivers before porting nodes.\n          stage12/ validates the exact st,fts touch driver, I2C17, GPIO pinctrl and regulator prerequisites.\n          stage13/ collects donor and native QUPv3 SE17 controller evidence.
           stage14/ attempts an address-level match and records unresolved source definitions.
-          stage15/ traces the exact SE17 label provider and include chain without mutating DTS.
+          stage15/ establishes that the DTS tree contains references but no local label definition.
+          stage16/ searches both complete source trees for the provider, macro or generated dependency.
           native510/sm8150-5.10-base.dts is the decompiled 5.10 reference structure.
           EOF
 
@@ -841,9 +872,9 @@ jobs:
           (cd dist && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           cat dist/SHA256SUMS
 
-      - name: Upload 5.10 Stage 15 artifacts
+      - name: Upload 5.10 Stage 16 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mi9-Linux510-Stage15-Cepheus-SE17-Provider-Trace-KSUN33214
+          name: Mi9-Linux510-Stage16-Cepheus-SE17-Full-Tree-Trace-KSUN33214
           path: dist/
           if-no-files-found: error
