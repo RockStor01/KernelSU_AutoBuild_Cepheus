@@ -213,6 +213,18 @@ jobs:
 
           s = s.replace('hlist_for_each_entry (entry, head, list)', 'ksu_lsm_for_each_entry(entry, head)')
 
+          legacy_head_assign = '    head = (struct hlist_head *)(heads_addr + hook->head_offset);\n'
+          if legacy_head_assign in s:
+              s = s.replace(
+                  legacy_head_assign,
+                  '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+                  '    head = (struct list_head *)(heads_addr + hook->head_offset);\n'
+                  '#else\n'
+                  '    head = (struct hlist_head *)(heads_addr + hook->head_offset);\n'
+                  '#endif\n',
+                  1,
+              )
+
           old = ('    head = (struct hlist_head *)heads_addr;\n'
                  '    struct hlist_head *head_end = (struct hlist_head *)(heads_addr + heads_size);\n')
           new = ('#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
